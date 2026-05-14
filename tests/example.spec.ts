@@ -140,3 +140,89 @@ test('count and isVisible', async ({ proxyPage: page }) => {
   expect(await page.locator('.inventory_list').isVisible()).toBe(true);
   expect(await page.locator('.nonexistent-element').isVisible()).toBe(false);
 });
+
+test('wikipedia search', async ({ proxyPage: page }) => {
+  await page.goto('https://www.wikipedia.org/');
+
+  await page.locator('#searchInput').fill('Playwright');
+  await page.locator('button[type="submit"]').click();
+  await page.waitForSelector('#firstHeading');
+
+  const title = await page.locator('#firstHeading').innerText();
+  expect(title).toMatch(/Playwright/);
+
+  // Article has a content body
+  expect(await page.locator('#mw-content-text').isVisible()).toBe(true);
+
+  // TOC or first paragraph mentions theatre/software
+  const intro = await page.locator('#mw-content-text p').first().innerText();
+  expect(intro.length).toBeGreaterThan(0);
+});
+
+test('full checkout flow', async ({ proxyPage: page }) => {
+  // ── Login ────────────────────────────────────────────────────────────────
+  await page.goto('https://www.saucedemo.com/');
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+  await page.click('#login-button');
+  await page.waitForSelector('[data-test="inventory-list"]');
+
+  expect(await page.locator('[data-test="title"]').innerText()).toBe('Products');
+  expect(await page.locator('[data-test="inventory-item"]').count()).toBe(6);
+
+  // ── Add items to cart ────────────────────────────────────────────────────
+  await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
+  await page.locator('[data-test="add-to-cart-sauce-labs-bike-light"]').click();
+
+  expect(await page.locator('[data-test="shopping-cart-badge"]').innerText()).toBe('2');
+
+  // ── Cart ─────────────────────────────────────────────────────────────────
+  await page.locator('[data-test="shopping-cart-link"]').click();
+  await page.waitForSelector('[data-test="cart-list"]');
+
+  expect(await page.locator('[data-test="title"]').innerText()).toBe('Your Cart');
+
+  const cartItems = page.locator('[data-test="inventory-item"]');
+  expect(await cartItems.count()).toBe(2);
+  expect(await cartItems.filter({ hasText: 'Sauce Labs Backpack' }).isVisible()).toBe(true);
+  expect(await cartItems.filter({ hasText: 'Sauce Labs Bike Light' }).isVisible()).toBe(true);
+
+  // ── Checkout: Your Information ────────────────────────────────────────────
+  await page.locator('[data-test="checkout"]').click();
+  await page.waitForSelector('[data-test="checkout-info-container"]');
+
+  expect(await page.locator('[data-test="title"]').innerText()).toBe('Checkout: Your Information');
+
+  await page.fill('#first-name', 'John');
+  await page.fill('#last-name', 'Doe');
+  await page.fill('#postal-code', '12345');
+  await page.locator('[data-test="continue"]').click();
+  await page.waitForSelector('[data-test="checkout-summary-container"]');
+
+  // ── Checkout: Overview ────────────────────────────────────────────────────
+  expect(await page.locator('[data-test="title"]').innerText()).toBe('Checkout: Overview');
+  expect(await page.locator('[data-test="inventory-item"]').count()).toBe(2);
+
+  // Verify line items and totals are present
+  expect(await page.locator('[data-test="inventory-item"]').filter({ hasText: 'Sauce Labs Backpack' }).isVisible()).toBe(true);
+  expect(await page.locator('[data-test="inventory-item"]').filter({ hasText: 'Sauce Labs Bike Light' }).isVisible()).toBe(true);
+
+  const subtotal = await page.locator('[data-test="subtotal-label"]').innerText();
+  expect(subtotal).toMatch(/Item total: \$39\.98/);
+
+  const tax = await page.locator('[data-test="tax-label"]').innerText();
+  expect(tax).toMatch(/Tax: \$/);
+
+  const total = await page.locator('[data-test="total-label"]').innerText();
+  expect(total).toMatch(/Total: \$/);
+
+  // ── Finish ────────────────────────────────────────────────────────────────
+  await page.locator('[data-test="finish"]').click();
+  await page.waitForSelector('[data-test="checkout-complete-container"]');
+
+  // ── Confirmation ──────────────────────────────────────────────────────────
+  expect(await page.locator('[data-test="complete-header"]').innerText()).toBe('Thank you for your order!');
+
+  const confirmText = await page.locator('[data-test="complete-text"]').innerText();
+  expect(confirmText).toMatch(/dispatched/i);
+});

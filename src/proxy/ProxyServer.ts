@@ -1,11 +1,12 @@
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { rewriteHtml } from './HtmlRewriter';
+import { rewriteHtml, rewriteCss } from './HtmlRewriter';
 
 interface PendingCommand {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  payload: string;
 }
 
 const STRIPPED_RESPONSE_HEADERS = new Set([
@@ -56,27 +57,35 @@ export class ProxyServer {
   }
 
   // Send a command that expects a response from the page.
+  // If no connection is currently open (e.g. the page is mid-navigation after
+  // a click that caused a redirect) the command is queued and dispatched as
+  // soon as the next WebSocket connection arrives, rather than rejecting
+  // immediately. This handles the common "click → navigate → waitForSelector"
+  // pattern without requiring callers to manually wait for navigation.
   sendCommand<T = void>(command: object, timeoutMs = 30_000): Promise<T> {
     return new Promise((resolve, reject) => {
       const id = String(++this.cmdId);
       const payload = JSON.stringify({ ...command, id });
-
-      let sent = false;
-      for (const ws of this.connections) {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(payload);
-          sent = true;
-          break;
-        }
-      }
-      if (!sent) return reject(new Error('No connected browser page'));
 
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Command timed out: ${JSON.stringify(command)}`));
       }, timeoutMs);
 
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer, payload });
+
+      const dispatch = () => {
+        for (const ws of this.connections) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(payload);
+            return;
+          }
+        }
+        // No open connection yet — re-queue for the next one.
+        this.nextConnectionResolvers.push(dispatch);
+      };
+
+      dispatch();
     });
   }
 
@@ -93,7 +102,25 @@ export class ProxyServer {
   private onWsConnection(ws: WebSocket): void {
     this.connections.add(ws);
 
-    ws.on('close', () => this.connections.delete(ws));
+    ws.on('close', () => {
+      this.connections.delete(ws);
+      // Any command still in `pending` was sent to the page that just closed
+      // (e.g. waitForSelector called right after a navigating click). Re-queue
+      // each one so it is dispatched to the next page that connects.
+      for (const [id, cmd] of this.pending) {
+        const resend = () => {
+          if (!this.pending.has(id)) return; // already resolved by the old page
+          for (const ws2 of this.connections) {
+            if (ws2.readyState === WebSocket.OPEN) {
+              ws2.send(cmd.payload);
+              return;
+            }
+          }
+          this.nextConnectionResolvers.push(resend);
+        };
+        resend();
+      }
+    });
     ws.on('message', data => {
       try {
         const msg = JSON.parse(data.toString()) as {
@@ -169,6 +196,16 @@ export class ProxyServer {
         res.writeHead(response.status, {
           ...safeHeaders,
           'content-type': 'text/html; charset=utf-8',
+          'content-length': String(buf.byteLength),
+        });
+        res.end(buf);
+      } else if (contentType.includes('text/css')) {
+        const css = await response.text();
+        const rewritten = rewriteCss(css, targetUrl);
+        const buf = Buffer.from(rewritten, 'utf-8');
+        res.writeHead(response.status, {
+          ...safeHeaders,
+          'content-type': 'text/css; charset=utf-8',
           'content-length': String(buf.byteLength),
         });
         res.end(buf);

@@ -247,7 +247,9 @@ export const CLIENT_SCRIPT = `(function () {
           const el = await getEl(cmd, timeout);
           el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
           el.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
-          el.dispatchEvent(new MouseEvent('click',     { bubbles: true, cancelable: true }));
+          // Use the native .click() so the event is trusted — untrusted synthetic
+          // click events don't trigger browser default actions like form submission.
+          el.click();
           break;
         }
 
@@ -321,4 +323,33 @@ export const CLIENT_SCRIPT = `(function () {
   }
 
   connect();
+
+  // Intercept GET form submissions. When the browser submits a GET form it
+  // replaces the action URL's query string with the form fields, which drops
+  // the ?url= parameter and causes "missing url parameter". We catch the
+  // submit event first, reconstruct the real target URL with form data
+  // appended, then navigate through the proxy ourselves.
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    if ((form.method || 'get').toLowerCase() !== 'get') return;
+
+    var actionUrl;
+    try { actionUrl = new URL(form.action); } catch (err) { return; }
+    if (actionUrl.pathname !== '/__proxy/fetch') return;
+
+    e.preventDefault();
+
+    var realTarget = actionUrl.searchParams.get('url');
+    if (!realTarget) return;
+
+    var targetUrl;
+    try { targetUrl = new URL(realTarget); } catch (err) { return; }
+
+    new FormData(form).forEach(function (value, key) {
+      targetUrl.searchParams.set(key, String(value));
+    });
+
+    window.location.href = '/__proxy/fetch?url=' + encodeURIComponent(targetUrl.href);
+  }, true);
 })();`;
