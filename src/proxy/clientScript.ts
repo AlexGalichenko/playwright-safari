@@ -13,6 +13,52 @@ function clientScript() {
     if (ws && ws.readyState === 1 /* OPEN */) ws.send(JSON.stringify(msg));
   }
 
+  // ---- SPA URL tracking ----
+  // Intercept pushState/replaceState so page.url() stays accurate after client-side navigation.
+  // The initial replaceState('/', ...) from our HTML rewriter fires before this code runs,
+  // so it is not intercepted — window.__pw_url is already set correctly in the headScript.
+  const _origPushState = history.pushState.bind(history);
+  const _origReplaceState = history.replaceState.bind(history);
+  const _updatePwUrl = function (url) {
+    if (!url) return;
+    try { window.__pw_url = new URL(String(url), window.__pw_url || location.href).href; } catch (e) {}
+  };
+  history.pushState    = function (state, title, url) { _updatePwUrl(url); return _origPushState(state, title, url); };
+  history.replaceState = function (state, title, url) { _updatePwUrl(url); return _origReplaceState(state, title, url); };
+
+  // ---- dialog interception ----
+  // Override alert/confirm/prompt so they don't block JS execution.
+  // A 'setDialogResponse' command pre-sets what confirm/prompt returns.
+  let _nextDialogResponse = { accept: false, promptText: null };
+  window.alert = function (msg) {
+    send({ type: 'event', name: 'dialog', dialogType: 'alert', message: String(msg || '') });
+  };
+  window.confirm = function (msg) {
+    const r = _nextDialogResponse;
+    _nextDialogResponse = { accept: false, promptText: null };
+    send({ type: 'event', name: 'dialog', dialogType: 'confirm', message: String(msg || '') });
+    return r.accept;
+  };
+  window.prompt = function (msg, def) {
+    const r = _nextDialogResponse;
+    _nextDialogResponse = { accept: false, promptText: null };
+    send({ type: 'event', name: 'dialog', dialogType: 'prompt', message: String(msg || ''), defaultValue: String(def || '') });
+    return r.accept ? (r.promptText !== null ? r.promptText : String(def || '')) : null;
+  };
+
+  // ---- console forwarding ----
+  const _origConsole = {};
+  ['log', 'warn', 'error', 'info', 'debug'].forEach(function (level) {
+    _origConsole[level] = console[level];
+    console[level] = function () {
+      _origConsole[level].apply(console, arguments);
+      const args = Array.from(arguments).map(function (a) {
+        try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e2) { return String(a); }
+      });
+      send({ type: 'event', name: 'console', level: level, args: args });
+    };
+  });
+
   // ---- locator resolution ----
 
   // Resolve a steps array against a root NodeList scope, returning matched elements.
@@ -483,6 +529,252 @@ function clientScript() {
 
         case 'waitForLocator': {
           await getEl(cmd, timeout);
+          break;
+        }
+
+        // ---- DOM queries ----
+
+        case 'allInnerTexts': {
+          const aitEls = cmd.steps ? resolveLocator(cmd.steps, null) : Array.from(document.querySelectorAll(cmd.selector));
+          result.result = aitEls.map(el => el.innerText);
+          break;
+        }
+
+        case 'allTextContents': {
+          const atcEls = cmd.steps ? resolveLocator(cmd.steps, null) : Array.from(document.querySelectorAll(cmd.selector));
+          result.result = atcEls.map(el => el.textContent || '');
+          break;
+        }
+
+        case 'getAttribute': {
+          const el = await getEl(cmd, timeout);
+          result.result = el.getAttribute(cmd.name);
+          break;
+        }
+
+        case 'textContent': {
+          const el = await getEl(cmd, timeout);
+          result.result = el.textContent;
+          break;
+        }
+
+        case 'innerHTML': {
+          const el = await getEl(cmd, timeout);
+          result.result = el.innerHTML;
+          break;
+        }
+
+        case 'boundingBox': {
+          const el = await getEl(cmd, timeout);
+          const bbr = el.getBoundingClientRect();
+          result.result = bbr.width === 0 && bbr.height === 0 ? null : { x: bbr.x, y: bbr.y, width: bbr.width, height: bbr.height };
+          break;
+        }
+
+        // ---- state queries ----
+
+        case 'isChecked': {
+          const el = await getEl(cmd, timeout);
+          result.result = !!el.checked;
+          break;
+        }
+
+        case 'isEnabled': {
+          const el = await getEl(cmd, timeout);
+          result.result = !el.disabled;
+          break;
+        }
+
+        case 'isDisabled': {
+          const el = await getEl(cmd, timeout);
+          result.result = !!el.disabled;
+          break;
+        }
+
+        case 'isEditable': {
+          const el = await getEl(cmd, timeout);
+          result.result = !el.readOnly && !el.disabled;
+          break;
+        }
+
+        case 'isHidden': {
+          const hidEls = cmd.steps ? resolveLocator(cmd.steps, null) : (document.querySelector(cmd.selector) ? [document.querySelector(cmd.selector)] : []);
+          if (hidEls.length === 0) { result.result = true; break; }
+          const hidr = hidEls[0].getBoundingClientRect();
+          result.result = !(hidr.width > 0 && hidr.height > 0 && getComputedStyle(hidEls[0]).visibility !== 'hidden');
+          break;
+        }
+
+        // ---- form actions ----
+
+        case 'check': {
+          const el = await getEl(cmd, timeout);
+          if (!el.checked) el.click();
+          break;
+        }
+
+        case 'uncheck': {
+          const el = await getEl(cmd, timeout);
+          if (el.checked) el.click();
+          break;
+        }
+
+        case 'setChecked': {
+          const el = await getEl(cmd, timeout);
+          if (!!cmd.checked !== !!el.checked) el.click();
+          break;
+        }
+
+        case 'selectOption': {
+          const el = await getEl(cmd, timeout);
+          const vals = Array.isArray(cmd.values) ? cmd.values : [cmd.values];
+          const opts = Array.from(el.options);
+          for (const opt of opts) {
+            opt.selected = vals.some(function (v) {
+              if (typeof v === 'string') return opt.value === v || opt.text === v;
+              if (v && typeof v === 'object') {
+                if (v.value !== undefined && opt.value !== v.value) return false;
+                if (v.label !== undefined && opt.text !== v.label) return false;
+                if (v.index !== undefined && opts.indexOf(opt) !== v.index) return false;
+                return true;
+              }
+              return false;
+            });
+          }
+          el.dispatchEvent(new Event('input',  { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          result.result = Array.from(el.selectedOptions).map(function (o) { return o.value; });
+          break;
+        }
+
+        // ---- element interaction ----
+
+        case 'hover': {
+          const el = await getEl(cmd, timeout);
+          const hvr = el.getBoundingClientRect();
+          const hx = Math.round(hvr.left + hvr.width / 2);
+          const hy = Math.round(hvr.top  + hvr.height / 2);
+          mouseX = hx; mouseY = hy;
+          el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, cancelable: false, clientX: hx, clientY: hy }));
+          el.dispatchEvent(new MouseEvent('mouseover',  { bubbles: true,  cancelable: true,  clientX: hx, clientY: hy }));
+          el.dispatchEvent(new MouseEvent('mousemove',  { bubbles: true,  cancelable: true,  clientX: hx, clientY: hy, buttons: mouseButtons }));
+          break;
+        }
+
+        case 'focus': {
+          const el = await getEl(cmd, timeout);
+          el.focus();
+          break;
+        }
+
+        case 'blur': {
+          const el = await getEl(cmd, timeout);
+          el.blur();
+          break;
+        }
+
+        case 'press': {
+          const el = await getEl(cmd, timeout);
+          el.focus();
+          const { modifiers: prMods, key: prMain } = parseCompoundKey(cmd.key);
+          for (const mod of prMods) { setModifier(mod, true); dispatchKeyEvent('keydown', resolveKey(mod)); }
+          const prKeyDef = resolveKey(prMain);
+          dispatchKeyEvent('keydown', prKeyDef);
+          if (cmd.delay) await delay(cmd.delay);
+          const prIsPrintable = prKeyDef.key.length === 1;
+          if (prIsPrintable || prMain === 'Enter' || prMain === 'Backspace' || prMain === 'Delete') {
+            if (prIsPrintable) dispatchKeyEvent('keypress', prKeyDef);
+            handleKeyEffect(prMain);
+          }
+          dispatchKeyEvent('keyup', prKeyDef);
+          for (let pi = prMods.length - 1; pi >= 0; pi--) { dispatchKeyEvent('keyup', resolveKey(prMods[pi])); setModifier(prMods[pi], false); }
+          break;
+        }
+
+        case 'pressSequentially': {
+          const el = await getEl(cmd, timeout);
+          el.focus();
+          for (const ch of cmd.text) {
+            const psKD = resolveKey(ch);
+            dispatchKeyEvent('keydown', psKD);
+            dispatchKeyEvent('keypress', psKD);
+            insertCharIntoActive(ch);
+            dispatchKeyEvent('keyup', psKD);
+            if (cmd.delay) await delay(cmd.delay);
+          }
+          break;
+        }
+
+        case 'dispatchEvent': {
+          const el = await getEl(cmd, timeout);
+          el.dispatchEvent(new Event(cmd.eventType, { bubbles: true, cancelable: true }));
+          break;
+        }
+
+        // ---- waiting ----
+
+        case 'waitForFunction': {
+          const wfFn = new Function('return (' + cmd.expression + ')');
+          const wfStart = Date.now();
+          while (true) {
+            const wfVal = await Promise.resolve(wfFn.call(window));
+            if (wfVal) { result.result = wfVal; break; }
+            if (Date.now() - wfStart > timeout) throw new Error('waitForFunction timed out after ' + timeout + 'ms');
+            await delay(cmd.polling || 100);
+          }
+          break;
+        }
+
+        case 'waitForURL': {
+          const wuStart = Date.now();
+          while (true) {
+            const wuUrl = window.__pw_url || document.URL;
+            let wuMatch = false;
+            if (cmd.matcherType === 'string') wuMatch = wuUrl.includes(cmd.matcherValue);
+            else if (cmd.matcherType === 'regexp') wuMatch = new RegExp(cmd.matcherValue, cmd.matcherFlags || '').test(wuUrl);
+            if (wuMatch) break;
+            if (Date.now() - wuStart > timeout) throw new Error('waitForURL timed out — URL: ' + wuUrl);
+            await delay(100);
+          }
+          break;
+        }
+
+        // ---- drag & drop ----
+
+        case 'dragAndDrop': {
+          const srcEl = await waitForElement(cmd.source, timeout);
+          const tgtEl = await waitForElement(cmd.target, timeout);
+          const dsr = srcEl.getBoundingClientRect();
+          const dtr = tgtEl.getBoundingClientRect();
+          const dsx = Math.round(dsr.left + dsr.width  / 2), dsy = Math.round(dsr.top + dsr.height / 2);
+          const dtx = Math.round(dtr.left + dtr.width  / 2), dty = Math.round(dtr.top + dtr.height / 2);
+          mouseX = dsx; mouseY = dsy;
+          srcEl.dispatchEvent(new MouseEvent('mousemove',  { bubbles: true, cancelable: true, clientX: dsx, clientY: dsy }));
+          mouseButtons |= 1;
+          srcEl.dispatchEvent(new MouseEvent('mousedown',  { bubbles: true, cancelable: true, clientX: dsx, clientY: dsy, button: 0, buttons: mouseButtons }));
+          srcEl.dispatchEvent(new DragEvent('dragstart',   { bubbles: true, cancelable: true, clientX: dsx, clientY: dsy }));
+          const ddSteps = cmd.steps || 5;
+          for (let di = 1; di <= ddSteps; di++) {
+            const dx = Math.round(dsx + (dtx - dsx) * di / ddSteps);
+            const dy = Math.round(dsy + (dty - dsy) * di / ddSteps);
+            const midEl = document.elementFromPoint(dx, dy) || document.body;
+            mouseX = dx; mouseY = dy;
+            midEl.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: dx, clientY: dy, buttons: mouseButtons }));
+            midEl.dispatchEvent(new DragEvent('drag',     { bubbles: true, cancelable: true, clientX: dx, clientY: dy }));
+            midEl.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: dx, clientY: dy }));
+          }
+          mouseX = dtx; mouseY = dty;
+          mouseButtons &= ~1;
+          tgtEl.dispatchEvent(new DragEvent('drop',    { bubbles: true, cancelable: true, clientX: dtx, clientY: dty }));
+          tgtEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: dtx, clientY: dty, button: 0, buttons: mouseButtons }));
+          tgtEl.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, clientX: dtx, clientY: dty }));
+          break;
+        }
+
+        // ---- dialog control ----
+
+        case 'setDialogResponse': {
+          _nextDialogResponse = { accept: !!cmd.accept, promptText: cmd.promptText !== undefined ? String(cmd.promptText) : null };
           break;
         }
 

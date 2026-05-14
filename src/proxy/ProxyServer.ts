@@ -35,10 +35,16 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 export interface ProxyServer {
   on(event: 'request',  listener: (req:  ProxyRequest)  => void): this;
   on(event: 'response', listener: (resp: ProxyResponse) => void): this;
+  on(event: 'browser:dialog',  listener: (msg: Record<string, unknown>) => void): this;
+  on(event: 'browser:console', listener: (msg: Record<string, unknown>) => void): this;
   off(event: 'request',  listener: (req:  ProxyRequest)  => void): this;
   off(event: 'response', listener: (resp: ProxyResponse) => void): this;
+  off(event: 'browser:dialog',  listener: (msg: Record<string, unknown>) => void): this;
+  off(event: 'browser:console', listener: (msg: Record<string, unknown>) => void): this;
   emit(event: 'request',  req:  ProxyRequest):  boolean;
   emit(event: 'response', resp: ProxyResponse): boolean;
+  emit(event: 'browser:dialog',  msg: Record<string, unknown>): boolean;
+  emit(event: 'browser:console', msg: Record<string, unknown>): boolean;
 }
 
 type RouteEntry = { matcher: UrlMatcher; handler: (route: Route) => void | Promise<void> };
@@ -50,6 +56,7 @@ export class ProxyServer extends EventEmitter {
   private readonly pending = new Map<string, PendingCommand>();
   private readonly nextConnectionResolvers: Array<() => void> = [];
   private readonly routes: RouteEntry[] = [];
+  private readonly initScripts: string[] = [];
   private cmdId = 0;
 
   constructor(public readonly port: number) {
@@ -116,6 +123,10 @@ export class ProxyServer extends EventEmitter {
     });
   }
 
+  addInitScript(script: string): void {
+    this.initScripts.push(script);
+  }
+
   addRoute(matcher: UrlMatcher, handler: (route: Route) => void | Promise<void>): void {
     this.routes.push({ matcher, handler });
   }
@@ -164,19 +175,20 @@ export class ProxyServer extends EventEmitter {
     });
     ws.on('message', data => {
       try {
-        const msg = JSON.parse(data.toString()) as {
-          id: string;
-          success: boolean;
-          error?: string;
-          result?: unknown;
-        };
-        const pending = this.pending.get(msg.id);
-        if (!pending) return;
-        clearTimeout(pending.timer);
-        this.pending.delete(msg.id);
-        msg.success
-          ? pending.resolve(msg.result)
-          : pending.reject(new Error(msg.error ?? 'Command failed'));
+        const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+        if (typeof msg.id === 'string') {
+          // Command response
+          const pending = this.pending.get(msg.id);
+          if (!pending) return;
+          clearTimeout(pending.timer);
+          this.pending.delete(msg.id);
+          msg.success
+            ? pending.resolve(msg.result)
+            : pending.reject(new Error(typeof msg.error === 'string' ? msg.error : 'Command failed'));
+        } else if (msg.type === 'event' && typeof msg.name === 'string') {
+          // Browser-initiated event (dialog, console, …)
+          this.emit(`browser:${msg.name}` as never, msg);
+        }
       } catch {
         // ignore malformed messages
       }
@@ -242,7 +254,7 @@ export class ProxyServer extends EventEmitter {
           : Buffer.from(rawBody ?? '', 'utf-8');
         // Inject the client script so fulfilled HTML pages are fully automatable.
         if (ct.includes('text/html')) {
-          body = Buffer.from(rewriteHtml(body.toString('utf-8'), targetUrl, this.port), 'utf-8');
+          body = Buffer.from(rewriteHtml(body.toString('utf-8'), targetUrl, this.port, this.initScripts), 'utf-8');
         }
         res.writeHead(action.status ?? 200, {
           'content-type': ct,
@@ -291,7 +303,7 @@ export class ProxyServer extends EventEmitter {
 
       if (contentType.includes('text/html')) {
         const html = await response.text();
-        const rewritten = rewriteHtml(html, targetUrl, this.port);
+        const rewritten = rewriteHtml(html, targetUrl, this.port, this.initScripts);
         const buf = Buffer.from(rewritten, 'utf-8');
         res.writeHead(response.status, {
           ...safeHeaders,

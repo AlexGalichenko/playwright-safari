@@ -54,7 +54,7 @@ export function rewriteCss(css: string, originalUrl: string): string {
 
 // Rewrites all URL attributes to route through the proxy and injects the
 // automation client script so the browser can receive commands via WebSocket.
-export function rewriteHtml(html: string, originalUrl: string, proxyPort: number): string {
+export function rewriteHtml(html: string, originalUrl: string, proxyPort: number, initScripts: string[] = []): string {
   const base = new URL(originalUrl);
   const rewrite = makeRewriter(base);
 
@@ -85,9 +85,13 @@ export function rewriteHtml(html: string, originalUrl: string, proxyPort: number
   // Router etc.) read window.location.pathname for routing; without this they
   // see "/__proxy/fetch" and render nothing.
   const originalPath = base.pathname + base.search + base.hash || '/';
+  const initScriptBlock = initScripts.length
+    ? initScripts.map(s => `try{(function(){${s}})()}catch(e){console.error('[initScript]',e)}`).join('\n') + '\n'
+    : '';
   const headScript = `<script>
+window.__pw_url = ${JSON.stringify(originalUrl)};
 history.replaceState(null, '', ${JSON.stringify(originalPath)});
-${CLIENT_SCRIPT}
+${initScriptBlock}${CLIENT_SCRIPT}
 </script>`;
 
   // Inject at the opening of <head> so it executes before any deferred/async

@@ -8,6 +8,9 @@ import type { LocatorStep } from './Locator';
 import { Route, UrlMatcher, matchesUrl } from './Route';
 import { Keyboard } from './Keyboard';
 import { Mouse } from './Mouse';
+import { Dialog, DialogType } from './Dialog';
+import { ConsoleMessage } from './ConsoleMessage';
+import type { SelectOption } from './Locator';
 
 const execAsync = promisify(exec);
 
@@ -20,6 +23,8 @@ export class Page {
   readonly keyboard: Keyboard;
   readonly mouse: Mouse;
 
+  private readonly _eventHandlers = new Map<string, Set<(data: unknown) => void>>();
+
   constructor(
     private readonly proxy: ProxyServer,
     private readonly externalNavigate?: NavigateFn,
@@ -27,6 +32,45 @@ export class Page {
   ) {
     this.keyboard = new Keyboard(proxy);
     this.mouse = new Mouse(proxy);
+
+    proxy.on('browser:dialog', (msg: Record<string, unknown>) => {
+      const handlers = this._eventHandlers.get('dialog');
+      if (!handlers?.size) return;
+      const d = new Dialog(
+        String(msg.dialogType ?? 'alert') as DialogType,
+        String(msg.message ?? ''),
+        String(msg.defaultValue ?? ''),
+        this.proxy,
+      );
+      for (const h of handlers) (h as (d: Dialog) => void)(d);
+    });
+    proxy.on('browser:console', (msg: Record<string, unknown>) => {
+      const handlers = this._eventHandlers.get('console');
+      if (!handlers?.size) return;
+      const c = new ConsoleMessage(
+        String(msg.level ?? 'log'),
+        (msg.args as string[] | undefined) ?? [],
+      );
+      for (const h of handlers) (h as (c: ConsoleMessage) => void)(c);
+    });
+  }
+
+  on(event: 'dialog',  handler: (dialog: Dialog) => void | Promise<void>): this;
+  on(event: 'console', handler: (msg: ConsoleMessage) => void | Promise<void>): this;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, handler: (data: any) => any): this {
+    if (!this._eventHandlers.has(event)) this._eventHandlers.set(event, new Set());
+    this._eventHandlers.get(event)!.add(handler as (data: unknown) => void);
+    return this;
+  }
+
+  off(event: 'dialog',  handler?: (dialog: Dialog) => void | Promise<void>): this;
+  off(event: 'console', handler?: (msg: ConsoleMessage) => void | Promise<void>): this;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  off(event: string, handler?: (data: any) => any): this {
+    if (!handler) { this._eventHandlers.delete(event); return this; }
+    this._eventHandlers.get(event)?.delete(handler as (data: unknown) => void);
+    return this;
   }
 
   // Navigate to a URL through the proxy.
@@ -149,5 +193,142 @@ export class Page {
   // Evaluate a JavaScript expression in the page context and return its value.
   async evaluate<T = unknown>(expression: string): Promise<T> {
     return this.proxy.sendCommand<T>({ type: 'evaluate', expression });
+  }
+
+  // ---- page info ----
+
+  async title(): Promise<string> {
+    return this.evaluate<string>('document.title');
+  }
+
+  async url(): Promise<string> {
+    return this.evaluate<string>('window.__pw_url || document.URL');
+  }
+
+  async content(): Promise<string> {
+    return this.evaluate<string>('document.documentElement.outerHTML');
+  }
+
+  // ---- navigation helpers ----
+
+  async waitForFunction<T = unknown>(expression: string, options: { timeout?: number; polling?: number } = {}): Promise<T> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<T>({ type: 'waitForFunction', expression, polling: options.polling ?? 100, timeout }, timeout + 1_000);
+  }
+
+  async waitForURL(url: string | RegExp, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    if (typeof url === 'string') {
+      await this.proxy.sendCommand({ type: 'waitForURL', matcherType: 'string', matcherValue: url, timeout }, timeout + 1_000);
+    } else {
+      await this.proxy.sendCommand({ type: 'waitForURL', matcherType: 'regexp', matcherValue: url.source, matcherFlags: url.flags, timeout }, timeout + 1_000);
+    }
+  }
+
+  async waitForLoadState(state: 'load' | 'domcontentloaded' | 'networkidle' = 'load', options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    if (state === 'networkidle') {
+      await this._waitForNetworkIdle(timeout);
+      return;
+    }
+    if (this.proxy.hasActiveConnections) return;
+    await Promise.race([
+      this.proxy.waitForNextConnection(),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('waitForLoadState timed out')), timeout)),
+    ]);
+  }
+
+  private _waitForNetworkIdle(timeout: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let idleTimer: ReturnType<typeof setTimeout>;
+      const deadline = setTimeout(() => {
+        clearTimeout(idleTimer);
+        this.proxy.off('request',  onReq);
+        this.proxy.off('response', onResp);
+        reject(new Error('waitForLoadState(networkidle) timed out'));
+      }, timeout);
+
+      const reset = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          clearTimeout(deadline);
+          this.proxy.off('request',  onReq);
+          this.proxy.off('response', onResp);
+          resolve();
+        }, 500);
+      };
+
+      const onReq  = () => reset();
+      const onResp = () => reset();
+      this.proxy.on('request',  onReq);
+      this.proxy.on('response', onResp);
+      reset();
+    });
+  }
+
+  // ---- element shortcuts ----
+
+  async focus(selector: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'focus', selector, timeout }, timeout + 1_000);
+  }
+
+  async hover(selector: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'hover', selector, timeout }, timeout + 1_000);
+  }
+
+  async isChecked(selector: string, options: { timeout?: number } = {}): Promise<boolean> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<boolean>({ type: 'isChecked', selector, timeout }, timeout + 1_000);
+  }
+
+  async isEnabled(selector: string, options: { timeout?: number } = {}): Promise<boolean> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<boolean>({ type: 'isEnabled', selector, timeout }, timeout + 1_000);
+  }
+
+  async check(selector: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'check', selector, timeout }, timeout + 1_000);
+  }
+
+  async uncheck(selector: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'uncheck', selector, timeout }, timeout + 1_000);
+  }
+
+  async selectOption(selector: string, values: string | string[] | SelectOption | SelectOption[], options: { timeout?: number } = {}): Promise<string[]> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string[]>({ type: 'selectOption', selector, values, timeout }, timeout + 1_000);
+  }
+
+  async getAttribute(selector: string, name: string, options: { timeout?: number } = {}): Promise<string | null> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string | null>({ type: 'getAttribute', selector, name, timeout }, timeout + 1_000);
+  }
+
+  async innerHTML(selector: string, options: { timeout?: number } = {}): Promise<string> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string>({ type: 'innerHTML', selector, timeout }, timeout + 1_000);
+  }
+
+  async textContent(selector: string, options: { timeout?: number } = {}): Promise<string | null> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string | null>({ type: 'textContent', selector, timeout }, timeout + 1_000);
+  }
+
+  async dispatchEvent(selector: string, type: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'dispatchEvent', selector, eventType: type, timeout }, timeout + 1_000);
+  }
+
+  addInitScript(script: string): void {
+    this.proxy.addInitScript(script);
+  }
+
+  async dragAndDrop(source: string, target: string, options: { timeout?: number; steps?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'dragAndDrop', source, target, steps: options.steps ?? 5, timeout }, timeout + 1_000);
   }
 }

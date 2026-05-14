@@ -1,5 +1,11 @@
 import { ProxyServer } from './proxy/ProxyServer';
 
+export interface SelectOption {
+  value?: string;
+  label?: string;
+  index?: number;
+}
+
 export type LocatorStep =
   | { type: 'css'; selector: string }
   | { type: 'getByText'; text: string; exact?: boolean }
@@ -97,5 +103,114 @@ export class Locator {
   async waitFor(options: { timeout?: number } = {}): Promise<void> {
     const timeout = options.timeout ?? 30_000;
     await this.proxy.sendCommand({ type: 'waitForLocator', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  // Returns one Locator per matched element (snapshot at call time).
+  async all(): Promise<Locator[]> {
+    const n = await this.count();
+    return Array.from({ length: n }, (_, i) => this.nth(i));
+  }
+
+  async allInnerTexts(): Promise<string[]> {
+    return this.proxy.sendCommand<string[]>({ type: 'allInnerTexts', steps: this.steps });
+  }
+
+  async allTextContents(): Promise<string[]> {
+    return this.proxy.sendCommand<string[]>({ type: 'allTextContents', steps: this.steps });
+  }
+
+  async getAttribute(name: string, options: { timeout?: number } = {}): Promise<string | null> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string | null>({ type: 'getAttribute', steps: this.steps, name, timeout }, timeout + 1_000);
+  }
+
+  async textContent(options: { timeout?: number } = {}): Promise<string | null> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string | null>({ type: 'textContent', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async innerHTML(options: { timeout?: number } = {}): Promise<string> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string>({ type: 'innerHTML', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async boundingBox(options: { timeout?: number } = {}): Promise<{ x: number; y: number; width: number; height: number } | null> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<{ x: number; y: number; width: number; height: number } | null>({ type: 'boundingBox', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async isChecked(options: { timeout?: number } = {}): Promise<boolean> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<boolean>({ type: 'isChecked', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async isEnabled(options: { timeout?: number } = {}): Promise<boolean> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<boolean>({ type: 'isEnabled', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async isDisabled(options: { timeout?: number } = {}): Promise<boolean> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<boolean>({ type: 'isDisabled', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async isEditable(options: { timeout?: number } = {}): Promise<boolean> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<boolean>({ type: 'isEditable', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async isHidden(options: { timeout?: number } = {}): Promise<boolean> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<boolean>({ type: 'isHidden', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async check(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'check', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async uncheck(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'uncheck', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async setChecked(checked: boolean, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'setChecked', steps: this.steps, checked, timeout }, timeout + 1_000);
+  }
+
+  async selectOption(values: string | string[] | SelectOption | SelectOption[], options: { timeout?: number } = {}): Promise<string[]> {
+    const timeout = options.timeout ?? 30_000;
+    return this.proxy.sendCommand<string[]>({ type: 'selectOption', steps: this.steps, values, timeout }, timeout + 1_000);
+  }
+
+  async hover(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'hover', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async focus(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'focus', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async blur(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'blur', steps: this.steps, timeout }, timeout + 1_000);
+  }
+
+  async press(key: string, options: { delay?: number; timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'press', steps: this.steps, key, delay: options.delay ?? 0, timeout }, timeout + 1_000);
+  }
+
+  async pressSequentially(text: string, options: { delay?: number; timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'pressSequentially', steps: this.steps, text, delay: options.delay ?? 0, timeout }, timeout + 1_000);
+  }
+
+  async dispatchEvent(type: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'dispatchEvent', steps: this.steps, eventType: type, timeout }, timeout + 1_000);
   }
 }
