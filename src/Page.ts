@@ -35,13 +35,20 @@ export class Page {
     await connected;
   }
 
-  // Fill an input element identified by a CSS selector.
-  async fill(selector: string, value: string): Promise<void> {
-    await this.proxy.sendCommand({ type: 'fill', selector, value });
+  async fill(selector: string, value: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'fill', selector, value, timeout }, timeout + 1_000);
   }
 
-  async click(selector: string): Promise<void> {
-    await this.proxy.sendCommand({ type: 'click', selector });
+  async click(selector: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'click', selector, timeout }, timeout + 1_000);
+  }
+
+  // Explicitly wait for a selector without interacting with it.
+  async waitForSelector(selector: string, options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'waitForSelector', selector, timeout }, timeout + 1_000);
   }
   
   // Evaluate a JavaScript expression in the page context and return its value.
