@@ -23,7 +23,7 @@ export default defineConfig({
   // safaridriver and uses its own proxy/driver ports.
   workers: 1,
   // Allow enough time for safaridriver startup + page load through the proxy.
-  timeout: 60_000,
+  timeout: 30_000,
   reporter: 'html',
   use: {
     trace: 'on-first-retry',

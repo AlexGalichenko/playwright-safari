@@ -40,6 +40,10 @@ export class Page {
     await this.proxy.sendCommand({ type: 'fill', selector, value });
   }
 
+  async click(selector: string): Promise<void> {
+    await this.proxy.sendCommand({ type: 'click', selector });
+  }
+  
   // Evaluate a JavaScript expression in the page context and return its value.
   async evaluate<T = unknown>(expression: string): Promise<T> {
     return this.proxy.sendCommand<T>({ type: 'evaluate', expression });

@@ -36,14 +36,23 @@ export function rewriteHtml(html: string, originalUrl: string, proxyPort: number
     '',
   );
 
-  const injectedScript = `<script>\n${CLIENT_SCRIPT}\n</script>`;
+  // Restore the original URL path before any app scripts run. SPAs (React
+  // Router etc.) read window.location.pathname for routing; without this they
+  // see "/__proxy/fetch" and render nothing.
+  const originalPath = base.pathname + base.search + base.hash || '/';
+  const headScript = `<script>
+history.replaceState(null, '', ${JSON.stringify(originalPath)});
+${CLIENT_SCRIPT}
+</script>`;
 
-  if (/<\/head>/i.test(result)) {
-    result = result.replace(/<\/head>/i, `${injectedScript}\n</head>`);
+  // Inject at the opening of <head> so it executes before any deferred/async
+  // bundles have a chance to read window.location.
+  if (/<head[^>]*>/i.test(result)) {
+    result = result.replace(/(<head[^>]*>)/i, `$1\n${headScript}`);
   } else if (/<body[^>]*>/i.test(result)) {
-    result = result.replace(/(<body[^>]*>)/i, `$1\n${injectedScript}`);
+    result = result.replace(/(<body[^>]*>)/i, `$1\n${headScript}`);
   } else {
-    result = injectedScript + '\n' + result;
+    result = headScript + '\n' + result;
   }
 
   return result;

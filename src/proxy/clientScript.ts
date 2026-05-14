@@ -27,6 +27,14 @@ export const CLIENT_SCRIPT = `(function () {
           el.dispatchEvent(new Event('change', { bubbles: true }));
           break;
         }
+        case 'click': {
+          const el = document.querySelector(cmd.selector);
+          if (!el) throw new Error('Element not found: ' + cmd.selector);
+          el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          el.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
+          el.dispatchEvent(new MouseEvent('click',     { bubbles: true, cancelable: true }));
+          break;
+        }
         case 'evaluate': {
           // new Function wraps the expression so it can return a value.
           const fn = new Function('return (' + cmd.expression + ')');
