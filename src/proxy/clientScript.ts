@@ -27,6 +27,12 @@ export const CLIENT_SCRIPT = `(function () {
           el.dispatchEvent(new Event('change', { bubbles: true }));
           break;
         }
+        case 'evaluate': {
+          // new Function wraps the expression so it can return a value.
+          const fn = new Function('return (' + cmd.expression + ')');
+          result.result = await Promise.resolve(fn.call(window));
+          break;
+        }
         default:
           throw new Error('Unknown command type: ' + cmd.type);
       }

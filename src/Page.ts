@@ -39,4 +39,9 @@ export class Page {
   async fill(selector: string, value: string): Promise<void> {
     await this.proxy.sendCommand({ type: 'fill', selector, value });
   }
+
+  // Evaluate a JavaScript expression in the page context and return its value.
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    return this.proxy.sendCommand<T>({ type: 'evaluate', expression });
+  }
 }

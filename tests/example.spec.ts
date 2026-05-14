@@ -1,47 +1,26 @@
-import { test, expect } from '@playwright/test';
-import { Browser } from '../src';
+import { test, expect } from './fixtures';
 
-// Allow extra time for each resource to be fetched through the proxy.
-test.setTimeout(60_000);
+// Tests open a real Safari window via safaridriver.
+// Requires: Safari ▸ Develop ▸ Allow Remote Automation.
 
-// Each test uses a distinct port so parallel workers don't clash.
-const PROXY_PORT = 8081;
+test('has title', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
 
-test('has title', async ({ }) => {
-  const browser = new Browser({ port: PROXY_PORT });
-  await browser.launch();
-
-  try {
-    // Use domcontentloaded so Playwright doesn't wait for every sub-resource
-    // (CSS, JS, images) to be fetched through the proxy before resolving.
-    const proxyPage = browser.newPage();
-
-    await proxyPage.goto('https://playwright.dev/');
-
-  } finally {
-    await browser.close();
-  }
+  const title = await page.evaluate<string>('document.title');
+  expect(title).toMatch(/Playwright/);
 });
 
-test('fill via proxy', async ({ page }) => {
-  const browser = new Browser({ port: PROXY_PORT + 1 });
-  await browser.launch();
+test('fill via proxy', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+  
+  await new Promise(r => setTimeout(r, 5000)); // Wait for page load + WS connection.
+  const title = await page.evaluate<string>('document.title');
+  expect(title).toMatch(/Swag Labs/);
 
-  try {
-    const proxyPage = browser.newPage(
-      url => page.goto(url, { waitUntil: 'domcontentloaded' }).then(() => {}),
-    );
 
-    await proxyPage.goto('https://the-internet.herokuapp.com/login');
+  await page.fill('#username', 'standard_user');
+  await page.fill('#password', 'secret_sauce!');
 
-    // fill() sends commands over the injected WebSocket — no CDP involved.
-    await proxyPage.fill('#username', 'tomsmith');
-    await proxyPage.fill('#password', 'SuperSecretPassword!');
-
-    // Verify with Playwright that the proxy's WS-based fill actually worked.
-    await expect(page.locator('#username')).toHaveValue('tomsmith');
-    await expect(page.locator('#password')).toHaveValue('SuperSecretPassword!');
-  } finally {
-    await browser.close();
-  }
+  expect(await page.evaluate<string>("document.querySelector('#username').value")).toBe('standard_user');
+  expect(await page.evaluate<string>("document.querySelector('#password').value")).toBe('secret_sauce!');
 });

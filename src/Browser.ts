@@ -1,28 +1,32 @@
 import { ProxyServer } from './proxy/ProxyServer';
-import { Page, NavigateFn } from './Page';
+import { SafariDriver } from './browser/SafariDriver';
+import { Page } from './Page';
 
 export interface BrowserLaunchOptions {
   port?: number;
+  driverPort?: number;
 }
 
 export class Browser {
   private readonly proxy: ProxyServer;
+  private readonly driver: SafariDriver;
 
   constructor(options: BrowserLaunchOptions = {}) {
     this.proxy = new ProxyServer(options.port ?? 8080);
+    this.driver = new SafariDriver(options.driverPort ?? 4444);
   }
 
   async launch(): Promise<void> {
     await this.proxy.start();
+    await this.driver.start();
   }
 
-  // Pass a navigate callback when an external browser (e.g. Playwright's page
-  // fixture) should handle the initial navigation instead of system `open`.
-  newPage(externalNavigate?: NavigateFn): Page {
-    return new Page(this.proxy, externalNavigate);
+  newPage(): Page {
+    return new Page(this.proxy, url => this.driver.navigate(url));
   }
 
   async close(): Promise<void> {
+    await this.driver.stop();
     await this.proxy.stop();
   }
 }
