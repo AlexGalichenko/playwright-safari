@@ -137,7 +137,9 @@ function clientScript() {
         case 'filter': {
           next = nodes.filter(el => {
             if (step.hasText !== undefined) {
-              if (!(el.textContent || '').includes(step.hasText)) return false;
+              const text = el.textContent || '';
+              const value = el.value || '';
+              if (!text.includes(step.hasText) && !value.includes(step.hasText)) return false;
             }
             if (step.has) {
               const inner = resolveLocator(step.has, [el]);
@@ -487,6 +489,8 @@ function clientScript() {
           // Use the native .click() so the event is trusted — untrusted synthetic
           // click events don't trigger browser default actions like form submission.
           el.click();
+          // Explicitly focus the element after clicking
+          el.focus();
           break;
         }
 
@@ -935,7 +939,25 @@ function clientScript() {
     ws = new WebSocket('ws://' + proxyHost + '/__proxy/ws');
 
     ws.onmessage = function (event) {
-      try { handleCommand(JSON.parse(event.data)); }
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'exposedFunctionResult') {
+          // Handle exposed function result
+          const callId = msg.callId;
+          const promise = window.__pw_exposed_functions && window.__pw_exposed_functions[callId];
+          if (promise) {
+            delete window.__pw_exposed_functions[callId];
+            if (msg.success) {
+              promise.resolve(msg.result);
+            } else {
+              promise.reject(new Error(msg.error));
+            }
+          }
+        } else {
+          // Handle regular command
+          handleCommand(msg);
+        }
+      }
       catch (e) { console.error('[proxy-client] parse error', e); }
     };
 

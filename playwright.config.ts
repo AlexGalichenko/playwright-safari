@@ -24,7 +24,6 @@ export default defineConfig({
   workers: 1,
   // Allow enough time for safaridriver startup + page load through the proxy.
   timeout: 30_000,
-  reporter: 'html',
   use: {
     trace: 'on-first-retry',
   },

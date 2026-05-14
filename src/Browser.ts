@@ -27,6 +27,7 @@ export class Browser {
       url => this.driver.navigate(url),
       () => this.driver.screenshot(),
       (width, height) => this.driver.setWindowSize(width, height),
+      () => this.driver.getWindowSize(),
     );
   }
 

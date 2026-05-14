@@ -17,6 +17,7 @@ const execAsync = promisify(exec);
 export type NavigateFn = (url: string) => Promise<void>;
 export type ScreenshotFn = () => Promise<Buffer>;
 export type SetViewportSizeFn = (width: number, height: number) => Promise<void>;
+export type GetViewportSizeFn = () => Promise<{ width: number; height: number }>;
 
 export type { ProxyRequest, ProxyResponse, UrlMatcher };
 
@@ -31,6 +32,7 @@ export class Page {
     private readonly externalNavigate?: NavigateFn,
     private readonly screenshotFn?: ScreenshotFn,
     private readonly setViewportSizeFn?: SetViewportSizeFn,
+    private readonly getViewportSizeFn?: GetViewportSizeFn,
   ) {
     this.keyboard = new Keyboard(proxy);
     this.mouse = new Mouse(proxy);
@@ -197,6 +199,44 @@ export class Page {
     await this.setViewportSizeFn(options.width, options.height);
   }
 
+  async viewportSize(): Promise<{ width: number; height: number }> {
+    if (!this.getViewportSizeFn) throw new Error('No viewport size provider — use Browser.newPage()');
+    return this.getViewportSizeFn();
+  }
+
+  exposeFunction(name: string, fn: (...args: unknown[]) => unknown): void {
+    // Store the function to be called when browser invokes it
+    this.proxy.exposeFunction(name, fn);
+
+    // Inject the function into the page context
+    const script = `
+      window.${name} = async (...args) => {
+        return new Promise((resolve, reject) => {
+          const id = Date.now() + Math.random();
+          window.__pw_exposed_functions = window.__pw_exposed_functions || {};
+          window.__pw_exposed_functions[id] = { resolve, reject };
+
+          // Send message to Node.js via WebSocket
+          if (window.__pw_ws) {
+            window.__pw_ws.send(JSON.stringify({
+              type: 'callExposedFunction',
+              name: '${name}',
+              args: args,
+              callId: id
+            }));
+          } else {
+            reject(new Error('WebSocket not available'));
+          }
+        });
+      };
+    `;
+    this.evaluate(script);
+  }
+
+  setExtraHTTPHeaders(headers: Record<string, string>): void {
+    this.proxy.setExtraHTTPHeaders(headers);
+  }
+
   // Evaluate a JavaScript expression in the page context and return its value.
   async evaluate<T = unknown>(expression: string): Promise<T> {
     return this.proxy.sendCommand<T>({ type: 'evaluate', expression });
@@ -243,6 +283,24 @@ export class Page {
       this.proxy.waitForNextConnection(),
       new Promise<void>((_, reject) => setTimeout(() => reject(new Error('waitForLoadState timed out')), timeout)),
     ]);
+  }
+
+  async reload(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    const currentUrl = await this.url();
+    await this.goto(currentUrl);
+  }
+
+  async goBack(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.evaluate('window.history.back()');
+    await this.waitForLoadState('load', { timeout });
+  }
+
+  async goForward(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.evaluate('window.history.forward()');
+    await this.waitForLoadState('load', { timeout });
   }
 
   private _waitForNetworkIdle(timeout: number): Promise<void> {
@@ -334,8 +392,60 @@ export class Page {
     this.proxy.addInitScript(script);
   }
 
+  async addScriptTag(options: { url?: string; content?: string; type?: string }): Promise<Element> {
+    const { url, content, type = 'text/javascript' } = options;
+    if (url && content) throw new Error('Cannot specify both url and content');
+    if (!url && !content) throw new Error('Must specify either url or content');
+
+    const scriptId = `pw-script-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const script = url
+      ? `<script id="${scriptId}" type="${type}" src="${url}"></script>`
+      : `<script id="${scriptId}" type="${type}">${content}</script>`;
+
+    await this.evaluate(`(() => {
+      const div = document.createElement('div');
+      div.innerHTML = ${JSON.stringify(script)};
+      const scriptEl = div.firstElementChild;
+      document.head.appendChild(scriptEl);
+      return scriptEl;
+    })()`);
+
+    return this.evaluate(`document.getElementById(${JSON.stringify(scriptId)})`);
+  }
+
+  async addStyleTag(options: { url?: string; content?: string }): Promise<Element> {
+    const { url, content } = options;
+    if (url && content) throw new Error('Cannot specify both url and content');
+    if (!url && !content) throw new Error('Must specify either url or content');
+
+    const styleId = `pw-style-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const style = url
+      ? `<link id="${styleId}" rel="stylesheet" href="${url}">`
+      : `<style id="${styleId}">${content}</style>`;
+
+    await this.evaluate(`(() => {
+      const div = document.createElement('div');
+      div.innerHTML = ${JSON.stringify(style)};
+      const styleEl = div.firstElementChild;
+      document.head.appendChild(styleEl);
+      return styleEl;
+    })()`);
+
+    return this.evaluate(`document.getElementById(${JSON.stringify(styleId)})`);
+  }
+
   async dragAndDrop(source: string, target: string, options: { timeout?: number; steps?: number } = {}): Promise<void> {
     const timeout = options.timeout ?? 30_000;
     await this.proxy.sendCommand({ type: 'dragAndDrop', source, target, steps: options.steps ?? 5, timeout }, timeout + 1_000);
+  }
+
+  // ---- element shortcuts ----
+
+  async isVisible(selector: string, options: { timeout?: number } = {}): Promise<boolean> {
+    return this.locator(selector).isVisible(options);
+  }
+
+  async innerText(selector: string, options: { timeout?: number } = {}): Promise<string> {
+    return this.locator(selector).innerText(options);
   }
 }

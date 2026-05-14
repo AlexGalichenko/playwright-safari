@@ -59,6 +59,9 @@ test('getByPlaceholder', async ({ proxyPage: page }) => {
 test('getByRole', async ({ proxyPage: page }) => {
   await page.goto('https://www.saucedemo.com/');
 
+  // Wait for the login button to be present
+  await page.waitForSelector('#login-button');
+
   // Login button has role="button" inferred from its input[type=submit]
   const loginBtn = page.getByRole('button').filter({ hasText: 'Login' });
   expect(await loginBtn.isVisible()).toBe(true);
@@ -396,6 +399,9 @@ test('mouse.move fires mousemove events', async ({ proxyPage: page }) => {
 
 test('mouse.dblclick', async ({ proxyPage: page }) => {
   await page.goto('https://www.saucedemo.com/');
+
+  // Wait for the username input to be present
+  await page.waitForSelector('#user-name');
 
   // Track dblclick events on the username input
   await page.evaluate(

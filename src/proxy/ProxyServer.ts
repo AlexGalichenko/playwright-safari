@@ -57,6 +57,8 @@ export class ProxyServer extends EventEmitter {
   private readonly nextConnectionResolvers: Array<() => void> = [];
   private readonly routes: RouteEntry[] = [];
   private readonly initScripts: string[] = [];
+  private readonly exposedFunctions = new Map<string, (...args: unknown[]) => unknown>();
+  private extraHeaders: Record<string, string> = {};
   private cmdId = 0;
 
   constructor(public readonly port: number) {
@@ -141,6 +143,14 @@ export class ProxyServer extends EventEmitter {
     }
   }
 
+  exposeFunction(name: string, fn: (...args: unknown[]) => unknown): void {
+    this.exposedFunctions.set(name, fn);
+  }
+
+  setExtraHTTPHeaders(headers: Record<string, string>): void {
+    this.extraHeaders = headers;
+  }
+
   // Fire-and-forget navigate — the page unloads immediately so no response comes back.
   navigateTo(proxyUrl: string): void {
     for (const ws of this.connections) {
@@ -148,6 +158,32 @@ export class ProxyServer extends EventEmitter {
         ws.send(JSON.stringify({ type: 'navigate', url: proxyUrl, id: String(++this.cmdId) }));
         break;
       }
+    }
+  }
+
+  private async handleExposedFunctionCall(ws: WebSocket, name: string, args: unknown[], callId: string): Promise<void> {
+    try {
+      const fn = this.exposedFunctions.get(name);
+      if (!fn) {
+        throw new Error(`Exposed function '${name}' not found`);
+      }
+
+      const result = await fn(...args);
+
+      ws.send(JSON.stringify({
+        type: 'exposedFunctionResult',
+        callId,
+        success: true,
+        result
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      ws.send(JSON.stringify({
+        type: 'exposedFunctionResult',
+        callId,
+        success: false,
+        error: errorMessage
+      }));
     }
   }
 
@@ -188,6 +224,9 @@ export class ProxyServer extends EventEmitter {
         } else if (msg.type === 'event' && typeof msg.name === 'string') {
           // Browser-initiated event (dialog, console, …)
           this.emit(`browser:${msg.name}` as never, msg);
+        } else if (msg.type === 'callExposedFunction' && typeof msg.name === 'string' && typeof msg.callId === 'string') {
+          // Browser calling an exposed function
+          this.handleExposedFunctionCall(ws, msg.name, msg.args as unknown[], msg.callId);
         }
       } catch {
         // ignore malformed messages
@@ -275,7 +314,10 @@ export class ProxyServer extends EventEmitter {
     try {
       const response = await fetch(targetUrl, {
         redirect: 'manual',
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; playwright-safari/1.0)' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; playwright-safari/1.0)',
+          ...this.extraHeaders,
+        },
       });
 
       const respHeaders: Record<string, string> = {};

@@ -34,6 +34,12 @@ export class SafariDriver {
     await this.wd('POST', `/session/${this.sessionId}/window/rect`, { width, height });
   }
 
+  async getWindowSize(): Promise<{ width: number; height: number }> {
+    if (!this.sessionId) throw new Error('No active Safari session');
+    const value = await this.wd('GET', `/session/${this.sessionId}/window/rect`) as { width: number; height: number };
+    return value;
+  }
+
   async stop(): Promise<void> {
     if (this.sessionId) {
       try { await this.wd('DELETE', `/session/${this.sessionId}`); } catch { /* ignore */ }
