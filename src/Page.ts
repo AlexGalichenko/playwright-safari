@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { writeFile } from 'fs/promises';
 import { ProxyServer } from './proxy/ProxyServer';
+import type { ProxyRequest, ProxyResponse } from './proxy/ProxyServer';
 import { Locator } from './Locator';
 import type { LocatorStep } from './Locator';
 
@@ -9,6 +10,15 @@ const execAsync = promisify(exec);
 
 export type NavigateFn = (url: string) => Promise<void>;
 export type ScreenshotFn = () => Promise<Buffer>;
+export type UrlMatcher = string | RegExp | ((url: string) => boolean);
+
+export type { ProxyRequest, ProxyResponse };
+
+function matchesUrl(url: string, matcher: UrlMatcher): boolean {
+  if (typeof matcher === 'string') return url.includes(matcher);
+  if (matcher instanceof RegExp) return matcher.test(url);
+  return matcher(url);
+}
 
 export class Page {
   constructor(
@@ -81,6 +91,42 @@ export class Page {
   getByTestId(testId: string): Locator {
     const step: LocatorStep = { type: 'getByTestId', testId };
     return new Locator(this.proxy, [step]);
+  }
+
+  waitForRequest(matcher: UrlMatcher, options: { timeout?: number } = {}): Promise<ProxyRequest> {
+    const timeout = options.timeout ?? 30_000;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.proxy.off('request', handler);
+        reject(new Error(`Timeout waiting for request matching ${matcher}`));
+      }, timeout);
+      const handler = (req: ProxyRequest) => {
+        if (matchesUrl(req.url, matcher)) {
+          clearTimeout(timer);
+          this.proxy.off('request', handler);
+          resolve(req);
+        }
+      };
+      this.proxy.on('request', handler);
+    });
+  }
+
+  waitForResponse(matcher: UrlMatcher, options: { timeout?: number } = {}): Promise<ProxyResponse> {
+    const timeout = options.timeout ?? 30_000;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.proxy.off('response', handler);
+        reject(new Error(`Timeout waiting for response matching ${matcher}`));
+      }, timeout);
+      const handler = (resp: ProxyResponse) => {
+        if (matchesUrl(resp.url, matcher)) {
+          clearTimeout(timer);
+          this.proxy.off('response', handler);
+          resolve(resp);
+        }
+      };
+      this.proxy.on('response', handler);
+    });
   }
 
   async screenshot(options: { path?: string } = {}): Promise<Buffer> {

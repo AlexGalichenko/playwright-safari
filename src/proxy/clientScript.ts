@@ -1,6 +1,9 @@
+// @ts-nocheck
 // Browser-side script injected into every proxied page.
 // Connects back to the proxy via WebSocket and handles automation commands.
-export const CLIENT_SCRIPT = `(function () {
+export const CLIENT_SCRIPT = `(${clientScript.toString()})()`;
+
+function clientScript() {
   'use strict';
 
   const proxyHost = location.host;
@@ -352,4 +355,4 @@ export const CLIENT_SCRIPT = `(function () {
 
     window.location.href = '/__proxy/fetch?url=' + encodeURIComponent(targetUrl.href);
   }, true);
-})();`;
+};

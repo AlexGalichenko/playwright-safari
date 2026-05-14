@@ -141,6 +141,21 @@ test('count and isVisible', async ({ proxyPage: page }) => {
   expect(await page.locator('.nonexistent-element').isVisible()).toBe(false);
 });
 
+test('waitForRequest and waitForResponse', async ({ proxyPage: page }) => {
+  const [, request, response] = await Promise.all([
+    page.goto('https://playwright.dev/'),
+    page.waitForRequest('playwright.dev'),
+    page.waitForResponse(url => url === 'https://playwright.dev/'),
+  ]);
+
+  expect(request.url).toContain('playwright.dev');
+  expect(request.method).toBe('GET');
+
+  expect(response.url).toBe('https://playwright.dev/');
+  expect(response.status).toBe(200);
+  expect(response.headers['content-type']).toMatch(/text\/html/);
+});
+
 test('screenshot', async ({ proxyPage: page }) => {
   await page.goto('https://playwright.dev/');
 

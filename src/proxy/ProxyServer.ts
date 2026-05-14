@@ -1,4 +1,5 @@
 import http from 'http';
+import { EventEmitter } from 'events';
 import { WebSocketServer, WebSocket } from 'ws';
 import { rewriteHtml, rewriteCss } from './HtmlRewriter';
 
@@ -7,6 +8,17 @@ interface PendingCommand {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   payload: string;
+}
+
+export interface ProxyRequest {
+  url: string;
+  method: string;
+}
+
+export interface ProxyResponse {
+  url: string;
+  status: number;
+  headers: Record<string, string>;
 }
 
 const STRIPPED_RESPONSE_HEADERS = new Set([
@@ -18,7 +30,17 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
   'x-frame-options',
 ]);
 
-export class ProxyServer {
+// Typed overloads so callers get proper types on .on()/.off()/.emit().
+export interface ProxyServer {
+  on(event: 'request',  listener: (req:  ProxyRequest)  => void): this;
+  on(event: 'response', listener: (resp: ProxyResponse) => void): this;
+  off(event: 'request',  listener: (req:  ProxyRequest)  => void): this;
+  off(event: 'response', listener: (resp: ProxyResponse) => void): this;
+  emit(event: 'request',  req:  ProxyRequest):  boolean;
+  emit(event: 'response', resp: ProxyResponse): boolean;
+}
+
+export class ProxyServer extends EventEmitter {
   private readonly server: http.Server;
   private readonly wss: WebSocketServer;
   private readonly connections = new Set<WebSocket>();
@@ -27,6 +49,7 @@ export class ProxyServer {
   private cmdId = 0;
 
   constructor(public readonly port: number) {
+    super();
     this.server = http.createServer(this.onRequest.bind(this));
     this.wss = new WebSocketServer({ server: this.server, path: '/__proxy/ws' });
     this.wss.on('connection', this.onWsConnection.bind(this));
@@ -185,11 +208,16 @@ export class ProxyServer {
   }
 
   private async proxyFetch(targetUrl: string, res: http.ServerResponse): Promise<void> {
+    this.emit('request', { url: targetUrl, method: 'GET' });
     try {
       const response = await fetch(targetUrl, {
         redirect: 'manual',
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; playwright-safari/1.0)' },
       });
+
+      const respHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => { respHeaders[key] = value; });
+      this.emit('response', { url: targetUrl, status: response.status, headers: respHeaders });
 
       // Transparently forward redirects, rewriting the Location to stay in-proxy.
       if (response.status >= 300 && response.status < 400) {
