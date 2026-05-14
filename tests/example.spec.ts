@@ -141,6 +141,46 @@ test('count and isVisible', async ({ proxyPage: page }) => {
   expect(await page.locator('.nonexistent-element').isVisible()).toBe(false);
 });
 
+test('route — fulfill', async ({ proxyPage: page }) => {
+  page.route('https://www.saucedemo.com/', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<html><head></head><body><h1 id="mock">Mocked</h1></body></html>',
+    });
+  });
+
+  await page.goto('https://www.saucedemo.com/');
+  await page.waitForSelector('#mock');
+  expect(await page.locator('#mock').innerText()).toBe('Mocked');
+});
+
+test('route — abort', async ({ proxyPage: page }) => {
+  const abortedUrls: string[] = [];
+  // Abort all CSS requests — page HTML and client script still load so goto completes.
+  page.route(/\.css$/, async route => {
+    abortedUrls.push(route.request.url);
+    await route.abort();
+  });
+
+  await page.goto('https://playwright.dev/');
+  expect(abortedUrls.length).toBeGreaterThan(0);
+  expect(abortedUrls.every(u => u.endsWith('.css'))).toBe(true);
+});
+
+test('route — continue', async ({ proxyPage: page }) => {
+  let intercepted = false;
+  page.route('https://www.saucedemo.com/', async route => {
+    intercepted = true;
+    await route.continue();
+  });
+
+  await page.goto('https://www.saucedemo.com/');
+  const title = await page.evaluate<string>('document.title');
+  expect(title).toMatch(/Swag Labs/);
+  expect(intercepted).toBe(true);
+});
+
 test('waitForRequest and waitForResponse', async ({ proxyPage: page }) => {
   const [, request, response] = await Promise.all([
     page.goto('https://playwright.dev/'),

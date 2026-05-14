@@ -5,20 +5,14 @@ import { ProxyServer } from './proxy/ProxyServer';
 import type { ProxyRequest, ProxyResponse } from './proxy/ProxyServer';
 import { Locator } from './Locator';
 import type { LocatorStep } from './Locator';
+import { Route, UrlMatcher, matchesUrl } from './Route';
 
 const execAsync = promisify(exec);
 
 export type NavigateFn = (url: string) => Promise<void>;
 export type ScreenshotFn = () => Promise<Buffer>;
-export type UrlMatcher = string | RegExp | ((url: string) => boolean);
 
-export type { ProxyRequest, ProxyResponse };
-
-function matchesUrl(url: string, matcher: UrlMatcher): boolean {
-  if (typeof matcher === 'string') return url.includes(matcher);
-  if (matcher instanceof RegExp) return matcher.test(url);
-  return matcher(url);
-}
+export type { ProxyRequest, ProxyResponse, UrlMatcher };
 
 export class Page {
   constructor(
@@ -91,6 +85,14 @@ export class Page {
   getByTestId(testId: string): Locator {
     const step: LocatorStep = { type: 'getByTestId', testId };
     return new Locator(this.proxy, [step]);
+  }
+
+  route(matcher: UrlMatcher, handler: (route: Route) => void | Promise<void>): void {
+    this.proxy.addRoute(matcher, handler);
+  }
+
+  unroute(matcher: UrlMatcher, handler?: (route: Route) => void | Promise<void>): void {
+    this.proxy.removeRoute(matcher, handler);
   }
 
   waitForRequest(matcher: UrlMatcher, options: { timeout?: number } = {}): Promise<ProxyRequest> {

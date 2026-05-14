@@ -2,6 +2,7 @@ import http from 'http';
 import { EventEmitter } from 'events';
 import { WebSocketServer, WebSocket } from 'ws';
 import { rewriteHtml, rewriteCss } from './HtmlRewriter';
+import { Route, RouteAction, UrlMatcher, matchesUrl } from '../Route';
 
 interface PendingCommand {
   resolve: (value: unknown) => void;
@@ -40,12 +41,15 @@ export interface ProxyServer {
   emit(event: 'response', resp: ProxyResponse): boolean;
 }
 
+type RouteEntry = { matcher: UrlMatcher; handler: (route: Route) => void | Promise<void> };
+
 export class ProxyServer extends EventEmitter {
   private readonly server: http.Server;
   private readonly wss: WebSocketServer;
   private readonly connections = new Set<WebSocket>();
   private readonly pending = new Map<string, PendingCommand>();
   private readonly nextConnectionResolvers: Array<() => void> = [];
+  private readonly routes: RouteEntry[] = [];
   private cmdId = 0;
 
   constructor(public readonly port: number) {
@@ -110,6 +114,20 @@ export class ProxyServer extends EventEmitter {
 
       dispatch();
     });
+  }
+
+  addRoute(matcher: UrlMatcher, handler: (route: Route) => void | Promise<void>): void {
+    this.routes.push({ matcher, handler });
+  }
+
+  removeRoute(matcher: UrlMatcher, handler?: (route: Route) => void | Promise<void>): void {
+    for (let i = this.routes.length - 1; i >= 0; i--) {
+      const r = this.routes[i];
+      if (r.matcher === matcher && (!handler || r.handler === handler)) {
+        this.routes.splice(i, 1);
+        break;
+      }
+    }
   }
 
   // Fire-and-forget navigate — the page unloads immediately so no response comes back.
@@ -209,6 +227,39 @@ export class ProxyServer extends EventEmitter {
 
   private async proxyFetch(targetUrl: string, res: http.ServerResponse): Promise<void> {
     this.emit('request', { url: targetUrl, method: 'GET' });
+
+    const matched = this.routes.find(r => matchesUrl(targetUrl, r.matcher));
+    if (matched) {
+      const action = await new Promise<RouteAction>(resolve => {
+        matched.handler(new Route(targetUrl, 'GET', resolve));
+      });
+
+      if (action.type === 'fulfill') {
+        const rawBody = action.body;
+        const ct = action.contentType ?? 'text/plain';
+        let body = Buffer.isBuffer(rawBody)
+          ? rawBody
+          : Buffer.from(rawBody ?? '', 'utf-8');
+        // Inject the client script so fulfilled HTML pages are fully automatable.
+        if (ct.includes('text/html')) {
+          body = Buffer.from(rewriteHtml(body.toString('utf-8'), targetUrl, this.port), 'utf-8');
+        }
+        res.writeHead(action.status ?? 200, {
+          'content-type': ct,
+          ...action.headers,
+          'content-length': String(body.byteLength),
+        });
+        res.end(body);
+        return;
+      }
+
+      if (action.type === 'abort') {
+        res.destroy();
+        return;
+      }
+      // 'continue' falls through to the real fetch below
+    }
+
     try {
       const response = await fetch(targetUrl, {
         redirect: 'manual',
