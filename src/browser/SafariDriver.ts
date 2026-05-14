@@ -29,6 +29,11 @@ export class SafariDriver {
     return Buffer.from(value, 'base64');
   }
 
+  async setWindowSize(width: number, height: number): Promise<void> {
+    if (!this.sessionId) throw new Error('No active Safari session');
+    await this.wd('POST', `/session/${this.sessionId}/window/rect`, { width, height });
+  }
+
   async stop(): Promise<void> {
     if (this.sessionId) {
       try { await this.wd('DELETE', `/session/${this.sessionId}`); } catch { /* ignore */ }

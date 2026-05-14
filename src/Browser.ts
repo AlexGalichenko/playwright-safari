@@ -26,6 +26,7 @@ export class Browser {
       this.proxy,
       url => this.driver.navigate(url),
       () => this.driver.screenshot(),
+      (width, height) => this.driver.setWindowSize(width, height),
     );
   }
 

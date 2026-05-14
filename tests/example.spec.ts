@@ -233,6 +233,7 @@ test('wikipedia search', async ({ proxyPage: page }) => {
 test('full checkout flow', async ({ proxyPage: page }) => {
   // ── Login ────────────────────────────────────────────────────────────────
   await page.goto('https://www.saucedemo.com/');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.fill('#user-name', 'standard_user');
   await page.fill('#password', 'secret_sauce');
   await page.click('#login-button');
@@ -424,4 +425,381 @@ test('mouse.wheel', async ({ proxyPage: page }) => {
   await page.mouse.wheel(0, 500);
 
   expect(await page.evaluate<boolean>('window._wheelFired')).toBe(true);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for dialog handling
+// ════════════════════════════════════════════════════════════════════════════
+
+test('dialog — alert accept', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Set up listener before triggering dialog
+  let dialogFired = false;
+  let dialogType = '';
+  let dialogMessage = '';
+
+  page.on('dialog', async dialog => {
+    dialogFired = true;
+    dialogType = dialog.type;
+    dialogMessage = dialog.message;
+    await dialog.accept();
+  });
+
+  // Trigger the dialog via JavaScript string
+  setTimeout(() => {
+    page.evaluate('alert("Test Alert Message")');
+  }, 50);
+
+  // Give the event handler time to process
+  await new Promise(r => setTimeout(r, 500));
+
+  expect(dialogFired).toBe(true);
+  expect(dialogType).toBe('alert');
+  expect(dialogMessage).toBe('Test Alert Message');
+});
+
+test('dialog — confirm dismiss', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  let dialogConfirmed = false;
+
+  page.on('dialog', async dialog => {
+    expect(dialog.type).toBe('confirm');
+    expect(dialog.message).toBe('Do you confirm?');
+    await dialog.dismiss();
+  });
+
+  // Trigger dialog and capture result
+  setTimeout(() => {
+    page.evaluate('window._confirmResult = confirm("Do you confirm?")');
+  }, 50);
+
+  await new Promise(r => setTimeout(r, 500));
+
+  dialogConfirmed = await page.evaluate<boolean>('window._confirmResult ?? false');
+
+  // If dismiss works, confirm returns false
+  expect(dialogConfirmed).toBe(false);
+});
+
+test('dialog — prompt with text', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  let promptResult = '';
+
+  page.on('dialog', async dialog => {
+    expect(dialog.type).toBe('prompt');
+    expect(dialog.message).toBe('Enter your name:');
+    // Accept with text
+    await dialog.accept('John Doe');
+  });
+
+  setTimeout(() => {
+    page.evaluate('window._promptResult = prompt("Enter your name:", "DefaultName")');
+  }, 50);
+
+  await new Promise(r => setTimeout(r, 500));
+
+  promptResult = await page.evaluate<string>('window._promptResult ?? ""');
+
+  expect(promptResult).toBe('John Doe');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for console message handling
+// ════════════════════════════════════════════════════════════════════════════
+
+test('console message — log', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  const messages: string[] = [];
+
+  page.on('console', msg => {
+    messages.push(`[${msg.type}] ${msg.text}`);
+  });
+
+  await page.evaluate('console.log("Test log message")');
+
+  await new Promise(r => setTimeout(r, 100));
+
+  expect(messages.some(m => m.includes('Test log message'))).toBe(true);
+});
+
+test('console message — error', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  const messages: string[] = [];
+
+  page.on('console', msg => {
+    if (msg.type === 'error') {
+      messages.push(msg.text);
+    }
+  });
+
+  await page.evaluate('console.error("Test error message")');
+
+  await new Promise(r => setTimeout(r, 100));
+
+  expect(messages.some(m => m.includes('Test error message'))).toBe(true);
+});
+
+test('console message — warning', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  const messages: string[] = [];
+
+  page.on('console', msg => {
+    if (msg.type === 'warning') {
+      messages.push(msg.text);
+    }
+  });
+
+  await page.evaluate('console.warn("Test warning message")');
+
+  await new Promise(r => setTimeout(r, 100));
+
+  expect(messages.some(m => m.includes('Test warning message'))).toBe(true);
+});
+
+test('console message — multiple args', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  let capturedMessage = '';
+
+  page.on('console', msg => {
+    capturedMessage = msg.text;
+  });
+
+  await page.evaluate('console.log("Hello", "World", "!")');
+
+  await new Promise(r => setTimeout(r, 100));
+
+  expect(capturedMessage).toContain('Hello');
+  expect(capturedMessage).toContain('World');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for locator state query methods
+// ════════════════════════════════════════════════════════════════════════════
+
+test('locator.isChecked', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create a checkbox for testing
+  await page.evaluate('const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.id = "test-checkbox"; checkbox.checked = false; document.body.appendChild(checkbox);');
+
+  const checkbox = page.locator('#test-checkbox');
+
+  expect(await checkbox.isChecked()).toBe(false);
+
+  // Check the checkbox via JavaScript
+  await page.evaluate('document.querySelector("#test-checkbox").checked = true;');
+
+  expect(await checkbox.isChecked()).toBe(true);
+});
+
+test('locator.isEnabled and isDisabled', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create enabled and disabled inputs
+  await page.evaluate('const enabledInput = document.createElement("input"); enabledInput.id = "enabled-input"; enabledInput.type = "text"; enabledInput.disabled = false; document.body.appendChild(enabledInput); const disabledInput = document.createElement("input"); disabledInput.id = "disabled-input"; disabledInput.type = "text"; disabledInput.disabled = true; document.body.appendChild(disabledInput);');
+
+  expect(await page.locator('#enabled-input').isEnabled()).toBe(true);
+  expect(await page.locator('#enabled-input').isDisabled()).toBe(false);
+
+  expect(await page.locator('#disabled-input').isEnabled()).toBe(false);
+  expect(await page.locator('#disabled-input').isDisabled()).toBe(true);
+});
+
+test('locator.isEditable', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create editable and readonly inputs
+  await page.evaluate('const editableInput = document.createElement("input"); editableInput.id = "editable-input"; editableInput.type = "text"; editableInput.readOnly = false; document.body.appendChild(editableInput); const readonlyInput = document.createElement("input"); readonlyInput.id = "readonly-input"; readonlyInput.type = "text"; readonlyInput.readOnly = true; document.body.appendChild(readonlyInput);');
+
+  expect(await page.locator('#editable-input').isEditable()).toBe(true);
+  expect(await page.locator('#readonly-input').isEditable()).toBe(false);
+});
+
+test('locator.isHidden', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create visible and hidden elements
+  await page.evaluate('const visibleEl = document.createElement("div"); visibleEl.id = "visible-element"; visibleEl.textContent = "Visible"; document.body.appendChild(visibleEl); const hiddenEl = document.createElement("div"); hiddenEl.id = "hidden-element"; hiddenEl.textContent = "Hidden"; hiddenEl.style.display = "none"; document.body.appendChild(hiddenEl);');
+
+  expect(await page.locator('#visible-element').isHidden()).toBe(false);
+  expect(await page.locator('#hidden-element').isHidden()).toBe(true);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for locator action methods
+// ════════════════════════════════════════════════════════════════════════════
+
+test('locator.check', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create an unchecked checkbox
+  await page.evaluate('const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.id = "check-test-checkbox"; checkbox.checked = false; document.body.appendChild(checkbox);');
+
+  const checkbox = page.locator('#check-test-checkbox');
+
+  expect(await checkbox.isChecked()).toBe(false);
+
+  // Check the checkbox
+  await checkbox.check();
+
+  expect(await checkbox.isChecked()).toBe(true);
+});
+
+test('locator.uncheck', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create a checked checkbox
+  await page.evaluate('const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.id = "uncheck-test-checkbox"; checkbox.checked = true; document.body.appendChild(checkbox);');
+
+  const checkbox = page.locator('#uncheck-test-checkbox');
+
+  expect(await checkbox.isChecked()).toBe(true);
+
+  // Uncheck the checkbox
+  await checkbox.uncheck();
+
+  expect(await checkbox.isChecked()).toBe(false);
+});
+
+test('locator.setChecked', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create an unchecked checkbox
+  await page.evaluate('const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.id = "set-checked-test-checkbox"; checkbox.checked = false; document.body.appendChild(checkbox);');
+
+  const checkbox = page.locator('#set-checked-test-checkbox');
+
+  expect(await checkbox.isChecked()).toBe(false);
+
+  // Set to checked
+  await checkbox.setChecked(true);
+  expect(await checkbox.isChecked()).toBe(true);
+
+  // Set to unchecked
+  await checkbox.setChecked(false);
+  expect(await checkbox.isChecked()).toBe(false);
+});
+
+test('locator.getAttribute', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  const button = page.locator('#login-button');
+
+  // Get the type attribute
+  const type = await button.getAttribute('type');
+  expect(type).toBe('submit');
+
+  // Get a non-existent attribute
+  const customAttr = await button.getAttribute('data-non-existent');
+  expect(customAttr).toBeNull();
+});
+
+test('locator.textContent', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+  await page.click('#login-button');
+  await page.waitForSelector('.title');
+
+  const titleElement = page.locator('.title');
+  const textContent = await titleElement.textContent();
+
+  expect(textContent).toContain('Products');
+});
+
+test('locator.innerHTML', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create an element with HTML content
+  await page.evaluate('const container = document.createElement("div"); container.id = "html-container"; container.innerHTML = "<strong>Bold Text</strong> and <em>Italic Text</em>"; document.body.appendChild(container);');
+
+  const html = await page.locator('#html-container').innerHTML();
+
+  expect(html).toContain('<strong>Bold Text</strong>');
+  expect(html).toContain('<em>Italic Text</em>');
+});
+
+test('locator.boundingBox', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  const button = page.locator('#login-button');
+  const box = await button.boundingBox();
+
+  expect(box).not.toBeNull();
+  expect(box).toHaveProperty('x');
+  expect(box).toHaveProperty('y');
+  expect(box).toHaveProperty('width');
+  expect(box).toHaveProperty('height');
+
+  if (box) {
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.height).toBeGreaterThan(0);
+  }
+});
+
+test('locator.allInnerTexts', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+  await page.click('#login-button');
+  await page.waitForSelector('.inventory_item_name');
+
+  const names = await page.locator('.inventory_item_name').allInnerTexts();
+
+  expect(Array.isArray(names)).toBe(true);
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.some(n => n.includes('Backpack') || n.includes('Sauce'))).toBe(true);
+});
+
+test('locator.allTextContents', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Create multiple elements with text content
+  await page.evaluate('const container = document.createElement("div"); container.id = "text-container"; container.innerHTML = "<span>Item 1</span><span>Item 2</span><span>Item 3</span>"; document.body.appendChild(container);');
+
+  const contents = await page.locator('#text-container span').allTextContents();
+
+  expect(Array.isArray(contents)).toBe(true);
+  expect(contents).toContain('Item 1');
+  expect(contents).toContain('Item 2');
+  expect(contents).toContain('Item 3');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for viewport/window size
+// ════════════════════════════════════════════════════════════════════════════
+
+test('setViewportSize', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Get initial window dimensions
+  const initialWidth = await page.evaluate<number>('window.innerWidth');
+  const initialHeight = await page.evaluate<number>('window.innerHeight');
+
+  expect(initialWidth).toBeGreaterThan(0);
+  expect(initialHeight).toBeGreaterThan(0);
+
+  // Set viewport to specific dimensions
+  await page.setViewportSize({ width: 640, height: 480 });
+
+  // Allow a brief moment for the viewport to resize
+  await new Promise(r => setTimeout(r, 500));
+
+  // Verify the new viewport dimensions
+  const newWidth = await page.evaluate<number>('window.innerWidth');
+  const newHeight = await page.evaluate<number>('window.innerHeight');
+
+  // Note: Due to browser chrome (tabs, toolbars), the actual innerWidth/innerHeight
+  // may not exactly match the set window size, but should be close
+  expect(newWidth).toBeLessThanOrEqual(640);
+  expect(newHeight).toBeLessThanOrEqual(480);
 });

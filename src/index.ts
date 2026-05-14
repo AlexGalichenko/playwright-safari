@@ -8,7 +8,7 @@ export { ConsoleMessage } from './ConsoleMessage';
 export { Route } from './Route';
 export { SafariDriver } from './browser/SafariDriver';
 export type { BrowserLaunchOptions } from './Browser';
-export type { NavigateFn, ScreenshotFn, UrlMatcher, ProxyRequest, ProxyResponse } from './Page';
+export type { NavigateFn, ScreenshotFn, SetViewportSizeFn, UrlMatcher, ProxyRequest, ProxyResponse } from './Page';
 export type { FulfillOptions } from './Route';
 export type { SelectOption } from './Locator';
 export type { DialogType } from './Dialog';

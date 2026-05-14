@@ -16,6 +16,7 @@ const execAsync = promisify(exec);
 
 export type NavigateFn = (url: string) => Promise<void>;
 export type ScreenshotFn = () => Promise<Buffer>;
+export type SetViewportSizeFn = (width: number, height: number) => Promise<void>;
 
 export type { ProxyRequest, ProxyResponse, UrlMatcher };
 
@@ -29,6 +30,7 @@ export class Page {
     private readonly proxy: ProxyServer,
     private readonly externalNavigate?: NavigateFn,
     private readonly screenshotFn?: ScreenshotFn,
+    private readonly setViewportSizeFn?: SetViewportSizeFn,
   ) {
     this.keyboard = new Keyboard(proxy);
     this.mouse = new Mouse(proxy);
@@ -188,6 +190,11 @@ export class Page {
     const buf = await this.screenshotFn();
     if (options.path) await writeFile(options.path, buf);
     return buf;
+  }
+
+  async setViewportSize(options: { width: number; height: number }): Promise<void> {
+    if (!this.setViewportSizeFn) throw new Error('No viewport size provider — use Browser.newPage()');
+    await this.setViewportSizeFn(options.width, options.height);
   }
 
   // Evaluate a JavaScript expression in the page context and return its value.
