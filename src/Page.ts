@@ -1,6 +1,8 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ProxyServer } from './proxy/ProxyServer';
+import { Locator } from './Locator';
+import type { LocatorStep } from './Locator';
 
 const execAsync = promisify(exec);
 
@@ -51,6 +53,35 @@ export class Page {
     await this.proxy.sendCommand({ type: 'waitForSelector', selector, timeout }, timeout + 1_000);
   }
   
+  locator(selector: string): Locator {
+    return new Locator(this.proxy, [{ type: 'css', selector }]);
+  }
+
+  getByText(text: string, options: { exact?: boolean } = {}): Locator {
+    const step: LocatorStep = { type: 'getByText', text, exact: options.exact };
+    return new Locator(this.proxy, [step]);
+  }
+
+  getByRole(role: string, options: { name?: string } = {}): Locator {
+    const step: LocatorStep = { type: 'getByRole', role, name: options.name };
+    return new Locator(this.proxy, [step]);
+  }
+
+  getByLabel(text: string, options: { exact?: boolean } = {}): Locator {
+    const step: LocatorStep = { type: 'getByLabel', text, exact: options.exact };
+    return new Locator(this.proxy, [step]);
+  }
+
+  getByPlaceholder(text: string, options: { exact?: boolean } = {}): Locator {
+    const step: LocatorStep = { type: 'getByPlaceholder', text, exact: options.exact };
+    return new Locator(this.proxy, [step]);
+  }
+
+  getByTestId(testId: string): Locator {
+    const step: LocatorStep = { type: 'getByTestId', testId };
+    return new Locator(this.proxy, [step]);
+  }
+
   // Evaluate a JavaScript expression in the page context and return its value.
   async evaluate<T = unknown>(expression: string): Promise<T> {
     return this.proxy.sendCommand<T>({ type: 'evaluate', expression });
