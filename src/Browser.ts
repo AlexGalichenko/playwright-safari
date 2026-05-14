@@ -22,7 +22,11 @@ export class Browser {
   }
 
   newPage(): Page {
-    return new Page(this.proxy, url => this.driver.navigate(url));
+    return new Page(
+      this.proxy,
+      url => this.driver.navigate(url),
+      () => this.driver.screenshot(),
+    );
   }
 
   async close(): Promise<void> {

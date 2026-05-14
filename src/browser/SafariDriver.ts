@@ -23,6 +23,12 @@ export class SafariDriver {
     await this.wd('POST', `/session/${this.sessionId}/url`, { url });
   }
 
+  async screenshot(): Promise<Buffer> {
+    if (!this.sessionId) throw new Error('No active Safari session');
+    const value = await this.wd('GET', `/session/${this.sessionId}/screenshot`) as string;
+    return Buffer.from(value, 'base64');
+  }
+
   async stop(): Promise<void> {
     if (this.sessionId) {
       try { await this.wd('DELETE', `/session/${this.sessionId}`); } catch { /* ignore */ }

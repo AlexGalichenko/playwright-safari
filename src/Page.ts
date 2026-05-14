@@ -1,19 +1,20 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { writeFile } from 'fs/promises';
 import { ProxyServer } from './proxy/ProxyServer';
 import { Locator } from './Locator';
 import type { LocatorStep } from './Locator';
 
 const execAsync = promisify(exec);
 
-// Callback used to open the first URL when an external browser (e.g. Playwright)
-// controls navigation rather than the system `open` command.
 export type NavigateFn = (url: string) => Promise<void>;
+export type ScreenshotFn = () => Promise<Buffer>;
 
 export class Page {
   constructor(
     private readonly proxy: ProxyServer,
     private readonly externalNavigate?: NavigateFn,
+    private readonly screenshotFn?: ScreenshotFn,
   ) {}
 
   // Navigate to a URL through the proxy.
@@ -80,6 +81,13 @@ export class Page {
   getByTestId(testId: string): Locator {
     const step: LocatorStep = { type: 'getByTestId', testId };
     return new Locator(this.proxy, [step]);
+  }
+
+  async screenshot(options: { path?: string } = {}): Promise<Buffer> {
+    if (!this.screenshotFn) throw new Error('No screenshot provider — use Browser.newPage()');
+    const buf = await this.screenshotFn();
+    if (options.path) await writeFile(options.path, buf);
+    return buf;
   }
 
   // Evaluate a JavaScript expression in the page context and return its value.

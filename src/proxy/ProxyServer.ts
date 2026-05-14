@@ -157,9 +157,30 @@ export class ProxyServer {
         return;
       }
       await this.proxyFetch(target, res);
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
+    } else if (!reqUrl.pathname.startsWith('/__proxy/')) {
+      // Fallback for root-relative requests made by page JS (e.g. webpack chunks
+      // with publicPath "/", fetch() calls, dynamically created <script> tags).
+      // Reconstruct the absolute target by resolving the request path against
+      // the original URL embedded in the Referer's ?url= parameter.
+      const target = this.resolveFromReferer(reqUrl, req.headers['referer']);
+      if (target) {
+        await this.proxyFetch(target, res);
+      } else {
+        res.writeHead(404);
+        res.end('Not found');
+      }
+    }
+  }
+
+  private resolveFromReferer(reqUrl: URL, referer: string | undefined): string | null {
+    if (!referer) return null;
+    try {
+      const ref = new URL(referer);
+      const base = ref.pathname === '/__proxy/fetch' ? ref.searchParams.get('url') : null;
+      if (!base) return null;
+      return new URL(reqUrl.pathname + reqUrl.search + reqUrl.hash, base).href;
+    } catch {
+      return null;
     }
   }
 

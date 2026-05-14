@@ -141,6 +141,22 @@ test('count and isVisible', async ({ proxyPage: page }) => {
   expect(await page.locator('.nonexistent-element').isVisible()).toBe(false);
 });
 
+test('screenshot', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.waitForSelector('.highlight_gXVj');
+  const buf = await page.screenshot();
+
+  // PNG magic bytes: 89 50 4E 47
+  expect(buf[0]).toBe(0x89);
+  expect(buf[1]).toBe(0x50); // P
+  expect(buf[2]).toBe(0x4e); // N
+  expect(buf[3]).toBe(0x47); // G
+  expect(buf.byteLength).toBeGreaterThan(1000);
+
+  await test.info().attach('screenshot.png', { body: buf, contentType: 'image/png' });
+});
+
 test('wikipedia search', async ({ proxyPage: page }) => {
   await page.goto('https://www.wikipedia.org/');
 
