@@ -213,6 +213,194 @@ function clientScript() {
 
   const delay = ms => new Promise(r => setTimeout(r, ms));
 
+  // ---- keyboard support ----
+
+  const KEY_DEFINITIONS = {
+    'Shift':      { key: 'Shift',      code: 'ShiftLeft',   keyCode: 16 },
+    'Control':    { key: 'Control',    code: 'ControlLeft', keyCode: 17 },
+    'Alt':        { key: 'Alt',        code: 'AltLeft',     keyCode: 18 },
+    'Meta':       { key: 'Meta',       code: 'MetaLeft',    keyCode: 91 },
+    'Enter':      { key: 'Enter',      code: 'Enter',       keyCode: 13 },
+    'Tab':        { key: 'Tab',        code: 'Tab',         keyCode: 9  },
+    'Space':      { key: ' ',          code: 'Space',       keyCode: 32 },
+    ' ':          { key: ' ',          code: 'Space',       keyCode: 32 },
+    'Backspace':  { key: 'Backspace',  code: 'Backspace',   keyCode: 8  },
+    'Delete':     { key: 'Delete',     code: 'Delete',      keyCode: 46 },
+    'Insert':     { key: 'Insert',     code: 'Insert',      keyCode: 45 },
+    'Escape':     { key: 'Escape',     code: 'Escape',      keyCode: 27 },
+    'ArrowLeft':  { key: 'ArrowLeft',  code: 'ArrowLeft',   keyCode: 37 },
+    'ArrowRight': { key: 'ArrowRight', code: 'ArrowRight',  keyCode: 39 },
+    'ArrowUp':    { key: 'ArrowUp',    code: 'ArrowUp',     keyCode: 38 },
+    'ArrowDown':  { key: 'ArrowDown',  code: 'ArrowDown',   keyCode: 40 },
+    'Home':       { key: 'Home',       code: 'Home',        keyCode: 36 },
+    'End':        { key: 'End',        code: 'End',         keyCode: 35 },
+    'PageUp':     { key: 'PageUp',     code: 'PageUp',      keyCode: 33 },
+    'PageDown':   { key: 'PageDown',   code: 'PageDown',    keyCode: 34 },
+    'F1':  { key: 'F1',  code: 'F1',  keyCode: 112 },
+    'F2':  { key: 'F2',  code: 'F2',  keyCode: 113 },
+    'F3':  { key: 'F3',  code: 'F3',  keyCode: 114 },
+    'F4':  { key: 'F4',  code: 'F4',  keyCode: 115 },
+    'F5':  { key: 'F5',  code: 'F5',  keyCode: 116 },
+    'F6':  { key: 'F6',  code: 'F6',  keyCode: 117 },
+    'F7':  { key: 'F7',  code: 'F7',  keyCode: 118 },
+    'F8':  { key: 'F8',  code: 'F8',  keyCode: 119 },
+    'F9':  { key: 'F9',  code: 'F9',  keyCode: 120 },
+    'F10': { key: 'F10', code: 'F10', keyCode: 121 },
+    'F11': { key: 'F11', code: 'F11', keyCode: 122 },
+    'F12': { key: 'F12', code: 'F12', keyCode: 123 },
+  };
+
+  const MODIFIER_KEY_NAMES = ['Shift', 'Control', 'Alt', 'Meta'];
+  const currentModifiers = { shiftKey: false, ctrlKey: false, altKey: false, metaKey: false };
+
+  function resolveKey(keyName) {
+    const def = KEY_DEFINITIONS[keyName];
+    if (def) return def;
+    if (keyName.length === 1) {
+      const upper = keyName.toUpperCase();
+      const isLetter = upper >= 'A' && upper <= 'Z';
+      const code = isLetter ? ('Key' + upper) : ('Digit' + upper);
+      return { key: keyName, code, keyCode: upper.charCodeAt(0) };
+    }
+    return { key: keyName, code: keyName, keyCode: 0 };
+  }
+
+  function parseCompoundKey(keyStr) {
+    const parts = keyStr.split('+');
+    const modifiers = parts.slice(0, -1).filter(p => MODIFIER_KEY_NAMES.includes(p));
+    return { modifiers, key: parts[parts.length - 1] };
+  }
+
+  function setModifier(key, active) {
+    if (key === 'Shift')   currentModifiers.shiftKey = active;
+    if (key === 'Control') currentModifiers.ctrlKey  = active;
+    if (key === 'Alt')     currentModifiers.altKey   = active;
+    if (key === 'Meta')    currentModifiers.metaKey  = active;
+  }
+
+  function dispatchKeyEvent(type, keyDef) {
+    const target = document.activeElement || document.body;
+    target.dispatchEvent(new KeyboardEvent(type, {
+      key: keyDef.key,
+      code: keyDef.code,
+      keyCode: keyDef.keyCode,
+      which: keyDef.keyCode,
+      charCode: type === 'keypress' ? keyDef.keyCode : 0,
+      bubbles: true,
+      cancelable: true,
+      shiftKey: currentModifiers.shiftKey,
+      ctrlKey:  currentModifiers.ctrlKey,
+      altKey:   currentModifiers.altKey,
+      metaKey:  currentModifiers.metaKey,
+    }));
+  }
+
+  function insertCharIntoActive(ch) {
+    const el = document.activeElement;
+    if (!el) return;
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      const start = el.selectionStart != null ? el.selectionStart : el.value.length;
+      const end   = el.selectionEnd   != null ? el.selectionEnd   : el.value.length;
+      const desc  = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+      const newValue = el.value.slice(0, start) + ch + el.value.slice(end);
+      if (desc && desc.set) desc.set.call(el, newValue); else el.value = newValue;
+      el.selectionStart = el.selectionEnd = start + ch.length;
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: ch }));
+    } else if (el.isContentEditable) {
+      document.execCommand('insertText', false, ch);
+    }
+  }
+
+  // ---- mouse support ----
+
+  let mouseX = 0;
+  let mouseY = 0;
+  let mouseButtons = 0; // bitmask: 1=left, 2=right, 4=middle
+
+  function resolveButton(name) {
+    if (name === 'middle') return { button: 1, mask: 4 };
+    if (name === 'right')  return { button: 2, mask: 2 };
+    return { button: 0, mask: 1 };
+  }
+
+  // Dispatches a MouseEvent at (x, y) and returns the target element.
+  function fireMouseEvent(type, x, y, button, clickCount) {
+    const el = document.elementFromPoint(x, y) || document.body;
+    el.dispatchEvent(new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX: x,
+      clientY: y,
+      screenX: x,
+      screenY: y,
+      button,
+      buttons: mouseButtons,
+      detail: clickCount,
+      shiftKey: currentModifiers.shiftKey,
+      ctrlKey:  currentModifiers.ctrlKey,
+      altKey:   currentModifiers.altKey,
+      metaKey:  currentModifiers.metaKey,
+    }));
+    return el;
+  }
+
+  // Apply the side-effect of pressing a key (character insertion, form submission, etc.)
+  function handleKeyEffect(mainKey) {
+    const keyDef = resolveKey(mainKey);
+    const ch = keyDef.key;
+
+    if (mainKey === 'Enter') {
+      const el = document.activeElement;
+      if (el && el.tagName === 'TEXTAREA') {
+        insertCharIntoActive('\n');
+      } else if (el && el.form) {
+        const submitBtn = el.form.querySelector('[type="submit"]');
+        if (submitBtn) submitBtn.click();
+        else if (el.form.requestSubmit) el.form.requestSubmit();
+        else el.form.submit();
+      }
+    } else if (mainKey === 'Backspace') {
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+        const start = el.selectionStart != null ? el.selectionStart : el.value.length;
+        const end   = el.selectionEnd   != null ? el.selectionEnd   : el.value.length;
+        const desc  = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+        let newVal, newPos;
+        if (start !== end) {
+          newVal = el.value.slice(0, start) + el.value.slice(end); newPos = start;
+        } else if (start > 0) {
+          newVal = el.value.slice(0, start - 1) + el.value.slice(start); newPos = start - 1;
+        } else {
+          return;
+        }
+        if (desc && desc.set) desc.set.call(el, newVal); else el.value = newVal;
+        el.selectionStart = el.selectionEnd = newPos;
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+      }
+    } else if (mainKey === 'Delete') {
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+        const start = el.selectionStart != null ? el.selectionStart : el.value.length;
+        const end   = el.selectionEnd   != null ? el.selectionEnd   : el.value.length;
+        const desc  = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+        let newVal;
+        if (start !== end) {
+          newVal = el.value.slice(0, start) + el.value.slice(end);
+        } else if (start < el.value.length) {
+          newVal = el.value.slice(0, start) + el.value.slice(start + 1);
+        } else {
+          return;
+        }
+        if (desc && desc.set) desc.set.call(el, newVal); else el.value = newVal;
+        el.selectionStart = el.selectionEnd = start;
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+      }
+    } else if (ch.length === 1 && !currentModifiers.ctrlKey && !currentModifiers.metaKey) {
+      const actualChar = currentModifiers.shiftKey ? ch.toUpperCase() : ch;
+      insertCharIntoActive(actualChar);
+    }
+  }
+
   async function handleCommand(cmd) {
     let result = { id: cmd.id, success: true };
     const timeout = cmd.timeout ?? 30000;
@@ -295,6 +483,149 @@ function clientScript() {
 
         case 'waitForLocator': {
           await getEl(cmd, timeout);
+          break;
+        }
+
+        case 'keyboardDown': {
+          if (MODIFIER_KEY_NAMES.includes(cmd.key)) setModifier(cmd.key, true);
+          dispatchKeyEvent('keydown', resolveKey(cmd.key));
+          break;
+        }
+
+        case 'keyboardUp': {
+          dispatchKeyEvent('keyup', resolveKey(cmd.key));
+          if (MODIFIER_KEY_NAMES.includes(cmd.key)) setModifier(cmd.key, false);
+          break;
+        }
+
+        case 'keyboardPress': {
+          const { modifiers, key: mainKey } = parseCompoundKey(cmd.key);
+
+          for (const mod of modifiers) {
+            setModifier(mod, true);
+            dispatchKeyEvent('keydown', resolveKey(mod));
+          }
+
+          const pressKeyDef = resolveKey(mainKey);
+          dispatchKeyEvent('keydown', pressKeyDef);
+          if (cmd.delay) await delay(cmd.delay);
+
+          const isPrintable = pressKeyDef.key.length === 1;
+          if (isPrintable || mainKey === 'Enter' || mainKey === 'Backspace' || mainKey === 'Delete') {
+            if (isPrintable) dispatchKeyEvent('keypress', pressKeyDef);
+            handleKeyEffect(mainKey);
+          }
+
+          dispatchKeyEvent('keyup', pressKeyDef);
+
+          for (let i = modifiers.length - 1; i >= 0; i--) {
+            dispatchKeyEvent('keyup', resolveKey(modifiers[i]));
+            setModifier(modifiers[i], false);
+          }
+          break;
+        }
+
+        case 'keyboardType': {
+          for (const ch of cmd.text) {
+            const typeKeyDef = resolveKey(ch);
+            dispatchKeyEvent('keydown', typeKeyDef);
+            dispatchKeyEvent('keypress', typeKeyDef);
+            insertCharIntoActive(ch);
+            dispatchKeyEvent('keyup', typeKeyDef);
+            if (cmd.delay) await delay(cmd.delay);
+          }
+          break;
+        }
+
+        case 'keyboardInsertText': {
+          const el = document.activeElement;
+          if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+            const start = el.selectionStart != null ? el.selectionStart : el.value.length;
+            const end   = el.selectionEnd   != null ? el.selectionEnd   : el.value.length;
+            const desc  = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+            const newValue = el.value.slice(0, start) + cmd.text + el.value.slice(end);
+            if (desc && desc.set) desc.set.call(el, newValue); else el.value = newValue;
+            el.selectionStart = el.selectionEnd = start + cmd.text.length;
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          } else {
+            document.execCommand('insertText', false, cmd.text);
+          }
+          break;
+        }
+
+        case 'mouseMove': {
+          const steps = Math.max(1, cmd.steps || 1);
+          const fromX = mouseX;
+          const fromY = mouseY;
+          for (let i = 1; i <= steps; i++) {
+            const sx = Math.round(fromX + (cmd.x - fromX) * i / steps);
+            const sy = Math.round(fromY + (cmd.y - fromY) * i / steps);
+            fireMouseEvent('mousemove', sx, sy, 0, 0);
+          }
+          mouseX = cmd.x;
+          mouseY = cmd.y;
+          break;
+        }
+
+        case 'mouseDown': {
+          const { button: mdBtn, mask: mdMask } = resolveButton(cmd.button);
+          mouseButtons |= mdMask;
+          fireMouseEvent('mousedown', mouseX, mouseY, mdBtn, cmd.clickCount || 1);
+          break;
+        }
+
+        case 'mouseUp': {
+          const { button: muBtn, mask: muMask } = resolveButton(cmd.button);
+          mouseButtons &= ~muMask;
+          fireMouseEvent('mouseup', mouseX, mouseY, muBtn, cmd.clickCount || 1);
+          break;
+        }
+
+        case 'mouseClick': {
+          const { button: mcBtn, mask: mcMask } = resolveButton(cmd.button);
+          const clickCount = cmd.clickCount || 1;
+          mouseX = cmd.x; mouseY = cmd.y;
+          fireMouseEvent('mousemove', cmd.x, cmd.y, 0, 0);
+          for (let i = 0; i < clickCount; i++) {
+            mouseButtons |= mcMask;
+            const downEl = fireMouseEvent('mousedown', cmd.x, cmd.y, mcBtn, i + 1);
+            if (cmd.delay) await delay(cmd.delay);
+            mouseButtons &= ~mcMask;
+            fireMouseEvent('mouseup', cmd.x, cmd.y, mcBtn, i + 1);
+            // Use trusted .click() for left button so default actions (form submit, links) fire.
+            if (mcBtn === 0) downEl.click(); else fireMouseEvent('click', cmd.x, cmd.y, mcBtn, i + 1);
+          }
+          break;
+        }
+
+        case 'mouseDblclick': {
+          const { button: dbBtn, mask: dbMask } = resolveButton(cmd.button);
+          mouseX = cmd.x; mouseY = cmd.y;
+          fireMouseEvent('mousemove', cmd.x, cmd.y, 0, 0);
+          for (const detail of [1, 2]) {
+            mouseButtons |= dbMask;
+            const downEl = fireMouseEvent('mousedown', cmd.x, cmd.y, dbBtn, detail);
+            if (cmd.delay) await delay(cmd.delay);
+            mouseButtons &= ~dbMask;
+            fireMouseEvent('mouseup', cmd.x, cmd.y, dbBtn, detail);
+            if (dbBtn === 0) downEl.click(); else fireMouseEvent('click', cmd.x, cmd.y, dbBtn, detail);
+          }
+          fireMouseEvent('dblclick', cmd.x, cmd.y, dbBtn, 2);
+          break;
+        }
+
+        case 'mouseWheel': {
+          const wheelEl = document.elementFromPoint(mouseX, mouseY) || document.body;
+          wheelEl.dispatchEvent(new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            clientX: mouseX,
+            clientY: mouseY,
+            deltaX: cmd.deltaX,
+            deltaY: cmd.deltaY,
+            deltaMode: 0,
+          }));
           break;
         }
 

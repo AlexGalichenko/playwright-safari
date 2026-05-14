@@ -6,6 +6,8 @@ import type { ProxyRequest, ProxyResponse } from './proxy/ProxyServer';
 import { Locator } from './Locator';
 import type { LocatorStep } from './Locator';
 import { Route, UrlMatcher, matchesUrl } from './Route';
+import { Keyboard } from './Keyboard';
+import { Mouse } from './Mouse';
 
 const execAsync = promisify(exec);
 
@@ -15,11 +17,17 @@ export type ScreenshotFn = () => Promise<Buffer>;
 export type { ProxyRequest, ProxyResponse, UrlMatcher };
 
 export class Page {
+  readonly keyboard: Keyboard;
+  readonly mouse: Mouse;
+
   constructor(
     private readonly proxy: ProxyServer,
     private readonly externalNavigate?: NavigateFn,
     private readonly screenshotFn?: ScreenshotFn,
-  ) {}
+  ) {
+    this.keyboard = new Keyboard(proxy);
+    this.mouse = new Mouse(proxy);
+  }
 
   // Navigate to a URL through the proxy.
   // First call opens the proxied URL via externalNavigate (if provided) or the

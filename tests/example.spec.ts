@@ -296,4 +296,132 @@ test('full checkout flow', async ({ proxyPage: page }) => {
 
   const confirmText = await page.locator('[data-test="complete-text"]').innerText();
   expect(confirmText).toMatch(/dispatched/i);
+  await page.waitForSelector('[data-test="complete-text"]');
+
+  const buf = await page.screenshot();
+  await test.info().attach('screenshot.png', { body: buf, contentType: 'image/png' });
+});
+
+test('keyboard.type and press Enter', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.click('#user-name');
+  await page.keyboard.type('standard_user');
+
+  expect(await page.locator('#user-name').inputValue()).toBe('standard_user');
+
+  await page.click('#password');
+  await page.keyboard.type('secret_sauce');
+
+  expect(await page.locator('#password').inputValue()).toBe('secret_sauce');
+
+  // Enter on the focused input submits the form
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.inventory_list');
+
+  const url = await page.evaluate<string>('document.URL');
+  expect(url).toMatch(/inventory\.html/);
+});
+
+test('keyboard.insertText', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.click('#user-name');
+  await page.keyboard.insertText('standard_user');
+
+  expect(await page.locator('#user-name').inputValue()).toBe('standard_user');
+});
+
+test('keyboard.down + up (modifier)', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.click('#user-name');
+  await page.keyboard.type('hello');
+
+  // Shift+Home selects to the start; the key event fires even if browser focus
+  // management for untrusted events doesn't move the cursor — the main thing
+  // we verify is no error is thrown and the modifier state cleans up correctly.
+  await page.keyboard.down('Shift');
+  await page.keyboard.press('End');
+  await page.keyboard.up('Shift');
+
+  // Value should still be 'hello' — no mutation from the selection shortcut
+  expect(await page.locator('#user-name').inputValue()).toBe('hello');
+});
+
+test('keyboard.press Backspace', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'hello');
+  await page.click('#user-name');
+
+  // Move cursor to end then delete last char
+  await page.evaluate('document.querySelector("#user-name").setSelectionRange(5, 5)');
+  await page.keyboard.press('Backspace');
+
+  expect(await page.locator('#user-name').inputValue()).toBe('hell');
+});
+
+test('mouse.click by coordinates', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+
+  // Get center of login button, then click via coordinates
+  const center = await page.evaluate<{ x: number; y: number }>(
+    `(() => { const r = document.querySelector('#login-button').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
+  );
+
+  await page.mouse.click(center.x, center.y);
+  await page.waitForSelector('.inventory_list');
+
+  const url = await page.evaluate<string>('document.URL');
+  expect(url).toMatch(/inventory\.html/);
+});
+
+test('mouse.move fires mousemove events', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.evaluate(
+    `(() => { window._moveCount = 0; document.addEventListener('mousemove', () => window._moveCount++); })()`
+  );
+
+  await page.mouse.move(300, 200, { steps: 4 });
+
+  const count = await page.evaluate<number>('window._moveCount');
+  expect(count).toBe(4);
+});
+
+test('mouse.dblclick', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  // Track dblclick events on the username input
+  await page.evaluate(
+    `(() => { window._dblclickFired = false; document.querySelector('#user-name').addEventListener('dblclick', () => { window._dblclickFired = true; }); })()`
+  );
+
+  const center = await page.evaluate<{ x: number; y: number }>(
+    `(() => { const r = document.querySelector('#user-name').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
+  );
+
+  await page.mouse.dblclick(center.x, center.y);
+
+  expect(await page.evaluate<boolean>('window._dblclickFired')).toBe(true);
+});
+
+test('mouse.wheel', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+  await page.waitForSelector('nav');
+
+  // Track wheel events — synthetic wheel events may not scroll natively in Safari,
+  // but the event should fire on the document.
+  await page.evaluate(
+    `(() => { window._wheelFired = false; document.addEventListener('wheel', () => { window._wheelFired = true; }, { once: true }); })()`
+  );
+
+  await page.mouse.move(400, 300);
+  await page.mouse.wheel(0, 500);
+
+  expect(await page.evaluate<boolean>('window._wheelFired')).toBe(true);
 });

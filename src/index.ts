@@ -1,6 +1,8 @@
 export { Browser } from './Browser';
 export { Page } from './Page';
 export { Locator } from './Locator';
+export { Keyboard } from './Keyboard';
+export { Mouse } from './Mouse';
 export { Route } from './Route';
 export { SafariDriver } from './browser/SafariDriver';
 export type { BrowserLaunchOptions } from './Browser';
