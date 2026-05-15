@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swag Labs – Products</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">Swag Labs</span>
+    <a class="cart-link" data-test="shopping-cart-link" href="/cart.html">
+      🛒 Cart
+      <span class="cart-badge" data-test="shopping-cart-badge"
+            id="cart-badge" style="display:none">0</span>
+    </a>
+  </header>
+
+  <nav>
+    <a href="/">Home</a>
+    <a href="/inventory.html">Products</a>
+  </nav>
+
+  <div class="title-bar">
+    <span class="title" data-test="title">Products</span>
+  </div>
+
+  <div class="inventory_list">
+
+    <div class="inventory_item" data-slug="sauce-labs-backpack">
+      <div class="inventory_item_name">Sauce Labs Backpack</div>
+      <div class="inventory_item_price">$29.99</div>
+      <button class="add-btn"
+              data-test="add-to-cart-sauce-labs-backpack"
+              onclick="addToCart('sauce-labs-backpack')">Add to cart</button>
+      <button class="remove-btn"
+              data-test="remove-sauce-labs-backpack"
+              style="display:none"
+              onclick="removeFromCart('sauce-labs-backpack')">Remove</button>
+    </div>
+
+    <div class="inventory_item" data-slug="sauce-labs-bike-light">
+      <div class="inventory_item_name">Sauce Labs Bike Light</div>
+      <div class="inventory_item_price">$9.99</div>
+      <button class="add-btn"
+              data-test="add-to-cart-sauce-labs-bike-light"
+              onclick="addToCart('sauce-labs-bike-light')">Add to cart</button>
+      <button class="remove-btn"
+              data-test="remove-sauce-labs-bike-light"
+              style="display:none"
+              onclick="removeFromCart('sauce-labs-bike-light')">Remove</button>
+    </div>
+
+    <div class="inventory_item" data-slug="sauce-labs-bolt-t-shirt">
+      <div class="inventory_item_name">Sauce Labs Bolt T-Shirt</div>
+      <div class="inventory_item_price">$15.99</div>
+      <button class="add-btn"
+              data-test="add-to-cart-sauce-labs-bolt-t-shirt"
+              onclick="addToCart('sauce-labs-bolt-t-shirt')">Add to cart</button>
+      <button class="remove-btn"
+              data-test="remove-sauce-labs-bolt-t-shirt"
+              style="display:none"
+              onclick="removeFromCart('sauce-labs-bolt-t-shirt')">Remove</button>
+    </div>
+
+    <div class="inventory_item" data-slug="sauce-labs-fleece-jacket">
+      <div class="inventory_item_name">Sauce Labs Fleece Jacket</div>
+      <div class="inventory_item_price">$49.99</div>
+      <button class="add-btn"
+              data-test="add-to-cart-sauce-labs-fleece-jacket"
+              onclick="addToCart('sauce-labs-fleece-jacket')">Add to cart</button>
+      <button class="remove-btn"
+              data-test="remove-sauce-labs-fleece-jacket"
+              style="display:none"
+              onclick="removeFromCart('sauce-labs-fleece-jacket')">Remove</button>
+    </div>
+
+    <div class="inventory_item" data-slug="sauce-labs-onesie">
+      <div class="inventory_item_name">Sauce Labs Onesie</div>
+      <div class="inventory_item_price">$7.99</div>
+      <button class="add-btn"
+              data-test="add-to-cart-sauce-labs-onesie"
+              onclick="addToCart('sauce-labs-onesie')">Add to cart</button>
+      <button class="remove-btn"
+              data-test="remove-sauce-labs-onesie"
+              style="display:none"
+              onclick="removeFromCart('sauce-labs-onesie')">Remove</button>
+    </div>
+
+    <div class="inventory_item" data-slug="test-allthethings-t-shirt">
+      <div class="inventory_item_name">Test.allTheThings() T-Shirt</div>
+      <div class="inventory_item_price">$15.99</div>
+      <button class="add-btn"
+              data-test="add-to-cart-test-allthethings-t-shirt"
+              onclick="addToCart('test-allthethings-t-shirt')">Add to cart</button>
+      <button class="remove-btn"
+              data-test="remove-test-allthethings-t-shirt"
+              style="display:none"
+              onclick="removeFromCart('test-allthethings-t-shirt')">Remove</button>
+    </div>
+
+  </div>
+
+  <script>
+    function getCart() {
+      try { return JSON.parse(localStorage.getItem('cart-contents') || '[]'); }
+      catch (e) { return []; }
+    }
+
+    function saveCart(cart) {
+      localStorage.setItem('cart-contents', JSON.stringify(cart));
+      renderBadge(cart);
+    }
+
+    function renderBadge(cart) {
+      var badge = document.getElementById('cart-badge');
+      if (cart.length > 0) {
+        badge.textContent = String(cart.length);
+        badge.style.display = 'inline';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    function renderButtons() {
+      var cart = getCart();
+      document.querySelectorAll('.inventory_item').forEach(function (item) {
+        var slug = item.getAttribute('data-slug');
+        var addBtn    = item.querySelector('[data-test="add-to-cart-' + slug + '"]');
+        var removeBtn = item.querySelector('[data-test="remove-' + slug + '"]');
+        if (!addBtn || !removeBtn) return;
+        var inCart = cart.indexOf(slug) !== -1;
+        addBtn.style.display    = inCart ? 'none'         : 'inline-block';
+        removeBtn.style.display = inCart ? 'inline-block' : 'none';
+      });
+    }
+
+    function addToCart(slug) {
+      var cart = getCart();
+      if (cart.indexOf(slug) === -1) cart.push(slug);
+      saveCart(cart);
+      renderButtons();
+    }
+
+    function removeFromCart(slug) {
+      var cart = getCart().filter(function (s) { return s !== slug; });
+      saveCart(cart);
+      renderButtons();
+    }
+
+    window.addEventListener('DOMContentLoaded', function () {
+      renderButtons();
+      renderBadge(getCart());
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swag Labs – ContentEditable</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    #editor {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      min-height: 80px;
+      padding: 12px;
+      font-size: 16px;
+      outline: none;
+      background: #fff;
+    }
+    #editor:focus {
+      border-color: #3ddc91;
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">Swag Labs</span>
+    <a class="cart-link" href="/">🛒</a>
+  </header>
+
+  <div class="page-content">
+    <h2 data-test="title">ContentEditable Demo</h2>
+    <div
+      id="editor"
+      data-test="editor"
+      contenteditable="true"
+      aria-label="Rich text editor"
+    ></div>
+    <p data-test="char-count">Characters: <span id="count">0</span></p>
+  </div>
+
+  <script>
+    const editor = document.getElementById('editor');
+    const count  = document.getElementById('count');
+    editor.addEventListener('input', function () {
+      count.textContent = editor.textContent.length;
+    });
+  </script>
+</body>
+</html>
