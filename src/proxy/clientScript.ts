@@ -59,11 +59,48 @@ function clientScript() {
     };
   });
 
+  // ---- frame helpers ----
+
+  // Resolve a frameId to its document. An empty/missing frameId means the main document.
+  // Formats:
+  //   ''             → main document
+  //   'myname'       → iframe[name="myname"].contentDocument
+  //   '__frame_N'    → window.frames[N].document  (positional, unnamed iframe)
+  //   '__selector:<css>' → document.querySelector(css).contentDocument
+  //   '__selector:<css>\n__selector:<css2>' → nested iframes (chained)
+  function getFrameDoc(frameId) {
+    if (!frameId) return document;
+    // CSS-selector-based lookup (from frameLocator API). Supports chaining for
+    // nested iframes: each selector is separated by a newline.
+    if (frameId.startsWith('__selector:')) {
+      const parts = frameId.split('\n__selector:');
+      let doc = document;
+      for (let i = 0; i < parts.length; i++) {
+        const sel = i === 0 ? parts[0].slice(11) : parts[i];
+        const iframe = doc.querySelector(sel);
+        if (!iframe || !iframe.contentDocument) return document;
+        doc = iframe.contentDocument;
+      }
+      return doc;
+    }
+    // Name-attribute lookup
+    const safe = frameId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const iframe = document.querySelector('iframe[name="' + safe + '"]');
+    if (iframe && iframe.contentDocument) return iframe.contentDocument;
+    // Positional index lookup
+    if (frameId.startsWith('__frame_')) {
+      const idx = parseInt(frameId.slice(8), 10);
+      if (!isNaN(idx) && window.frames[idx]) return window.frames[idx].document;
+    }
+    return document;
+  }
+
   // ---- locator resolution ----
 
   // Resolve a steps array against a root NodeList scope, returning matched elements.
-  function resolveLocator(steps, scope) {
-    let nodes = scope ? Array.from(scope) : [document];
+  function resolveLocator(steps, scope, rootDoc) {
+    rootDoc = rootDoc || document;
+    let nodes = scope ? Array.from(scope) : [rootDoc];
 
     for (const step of steps) {
       let next = [];
@@ -109,7 +146,7 @@ function clientScript() {
             inputs.push(...Array.from(root.querySelectorAll ? root.querySelectorAll('input,select,textarea') : []));
           }
           next = inputs.filter(input => {
-            const label = findLabelText(input);
+            const label = findLabelText(input, rootDoc);
             return step.exact ? label.trim() === step.text : label.includes(step.text);
           });
           break;
@@ -190,10 +227,11 @@ function clientScript() {
     return '';
   }
 
-  function findLabelText(input) {
+  function findLabelText(input, rootDoc) {
+    rootDoc = rootDoc || document;
     const id = input.id;
     if (id) {
-      const label = document.querySelector('label[for="' + id + '"]');
+      const label = rootDoc.querySelector('label[for="' + id + '"]');
       if (label) return label.textContent || '';
     }
     const parent = input.closest('label');
@@ -203,9 +241,10 @@ function clientScript() {
 
   // Resolves elements (steps-based or legacy selector), polling until at least
   // one element is found or timeout expires.
-  function getEl(cmd, timeout) {
+  function getEl(cmd, timeout, rootDoc) {
+    rootDoc = rootDoc || document;
     if (cmd.steps) {
-      const els = resolveLocator(cmd.steps, null);
+      const els = resolveLocator(cmd.steps, null, rootDoc);
       if (els.length > 0) return Promise.resolve(els[0]);
 
       return new Promise((resolve, reject) => {
@@ -215,7 +254,7 @@ function clientScript() {
         }, timeout);
 
         const observer = new MutationObserver(() => {
-          const found = resolveLocator(cmd.steps, null);
+          const found = resolveLocator(cmd.steps, null, rootDoc);
           if (found.length > 0) {
             clearTimeout(timer);
             observer.disconnect();
@@ -223,17 +262,18 @@ function clientScript() {
           }
         });
 
-        observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+        observer.observe(rootDoc.documentElement, { childList: true, subtree: true, attributes: true });
       });
     }
 
-    return waitForElement(cmd.selector, timeout);
+    return waitForElement(cmd.selector, timeout, rootDoc);
   }
 
   // ---- legacy waitForElement (CSS selector) ----
 
-  function waitForElement(selector, timeout) {
-    const el = document.querySelector(selector);
+  function waitForElement(selector, timeout, rootDoc) {
+    rootDoc = rootDoc || document;
+    const el = rootDoc.querySelector(selector);
     if (el) return Promise.resolve(el);
 
     return new Promise((resolve, reject) => {
@@ -243,7 +283,7 @@ function clientScript() {
       }, timeout);
 
       const observer = new MutationObserver(() => {
-        const found = document.querySelector(selector);
+        const found = rootDoc.querySelector(selector);
         if (found) {
           clearTimeout(timer);
           observer.disconnect();
@@ -251,7 +291,7 @@ function clientScript() {
         }
       });
 
-      observer.observe(document.documentElement, {
+      observer.observe(rootDoc.documentElement, {
         childList: true,
         subtree: true,
         attributes: true,
@@ -326,8 +366,8 @@ function clientScript() {
     if (key === 'Meta')    currentModifiers.metaKey  = active;
   }
 
-  function dispatchKeyEvent(type, keyDef) {
-    const target = document.activeElement || document.body;
+  function dispatchKeyEvent(type, keyDef, target) {
+    target = target || document.activeElement || document.body;
     target.dispatchEvent(new KeyboardEvent(type, {
       key: keyDef.key,
       code: keyDef.code,
@@ -343,8 +383,8 @@ function clientScript() {
     }));
   }
 
-  function insertCharIntoActive(ch) {
-    const el = document.activeElement;
+  function insertCharIntoActive(ch, el) {
+    el = el || document.activeElement;
     if (!el) return;
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
       const start = el.selectionStart != null ? el.selectionStart : el.value.length;
@@ -393,14 +433,15 @@ function clientScript() {
   }
 
   // Apply the side-effect of pressing a key (character insertion, form submission, etc.)
-  function handleKeyEffect(mainKey) {
+  // el: the currently-focused element (defaults to document.activeElement)
+  function handleKeyEffect(mainKey, el) {
     const keyDef = resolveKey(mainKey);
     const ch = keyDef.key;
+    el = el || document.activeElement;
 
     if (mainKey === 'Enter') {
-      const el = document.activeElement;
       if (el && el.tagName === 'TEXTAREA') {
-        insertCharIntoActive('\n');
+        insertCharIntoActive('\n', el);
       } else if (el && el.form) {
         const submitBtn = el.form.querySelector('[type="submit"]');
         if (submitBtn) submitBtn.click();
@@ -408,7 +449,6 @@ function clientScript() {
         else el.form.submit();
       }
     } else if (mainKey === 'Backspace') {
-      const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
         const start = el.selectionStart != null ? el.selectionStart : el.value.length;
         const end   = el.selectionEnd   != null ? el.selectionEnd   : el.value.length;
@@ -426,7 +466,6 @@ function clientScript() {
         el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
       }
     } else if (mainKey === 'Delete') {
-      const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
         const start = el.selectionStart != null ? el.selectionStart : el.value.length;
         const end   = el.selectionEnd   != null ? el.selectionEnd   : el.value.length;
@@ -445,13 +484,15 @@ function clientScript() {
       }
     } else if (ch.length === 1 && !currentModifiers.ctrlKey && !currentModifiers.metaKey) {
       const actualChar = currentModifiers.shiftKey ? ch.toUpperCase() : ch;
-      insertCharIntoActive(actualChar);
+      insertCharIntoActive(actualChar, el);
     }
   }
 
   async function handleCommand(cmd) {
     let result = { id: cmd.id, success: true };
     const timeout = cmd.timeout ?? 30000;
+    const frameDoc = getFrameDoc(cmd.frameId);
+    const frameWin = frameDoc.defaultView || window;
 
     try {
       switch (cmd.type) {
@@ -460,7 +501,7 @@ function clientScript() {
           return; // page navigates away — no response expected
 
         case 'fill': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           el.focus();
 
           // Use the prototype-level native setter so React's instance-level
@@ -483,7 +524,7 @@ function clientScript() {
         }
 
         case 'click': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
           el.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
           // Use the native .click() so the event is trusted — untrusted synthetic
@@ -495,25 +536,34 @@ function clientScript() {
         }
 
         case 'evaluate': {
-          const fn = new Function('return (' + cmd.expression + ')');
-          result.result = await Promise.resolve(fn.call(window));
+          // Use the frame's eval so expressions reference the correct window/document.
+          // Try wrapped in () first so object literals like { k: v } work as expressions;
+          // if that raises SyntaxError (e.g. const/let declarations), eval bare.
+          let evalResult;
+          try {
+            evalResult = frameWin.eval('(' + cmd.expression + ')');
+          } catch (e) {
+            if (!(e instanceof SyntaxError)) throw e;
+            evalResult = frameWin.eval(cmd.expression);
+          }
+          result.result = await Promise.resolve(evalResult);
           break;
         }
 
         case 'innerText': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = el.innerText;
           break;
         }
 
         case 'inputValue': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = el.value;
           break;
         }
 
         case 'isVisible': {
-          const els = cmd.steps ? resolveLocator(cmd.steps, null) : (document.querySelector(cmd.selector) ? [document.querySelector(cmd.selector)] : []);
+          const els = cmd.steps ? resolveLocator(cmd.steps, null, frameDoc) : (frameDoc.querySelector(cmd.selector) ? [frameDoc.querySelector(cmd.selector)] : []);
           if (els.length === 0) { result.result = false; break; }
           const rect = els[0].getBoundingClientRect();
           result.result = rect.width > 0 && rect.height > 0 && getComputedStyle(els[0]).visibility !== 'hidden';
@@ -521,55 +571,55 @@ function clientScript() {
         }
 
         case 'count': {
-          const els = cmd.steps ? resolveLocator(cmd.steps, null) : Array.from(document.querySelectorAll(cmd.selector));
+          const els = cmd.steps ? resolveLocator(cmd.steps, null, frameDoc) : Array.from(frameDoc.querySelectorAll(cmd.selector));
           result.result = els.length;
           break;
         }
 
         case 'waitForSelector': {
-          await waitForElement(cmd.selector, timeout);
+          await waitForElement(cmd.selector, timeout, frameDoc);
           break;
         }
 
         case 'waitForLocator': {
-          await getEl(cmd, timeout);
+          await getEl(cmd, timeout, frameDoc);
           break;
         }
 
         // ---- DOM queries ----
 
         case 'allInnerTexts': {
-          const aitEls = cmd.steps ? resolveLocator(cmd.steps, null) : Array.from(document.querySelectorAll(cmd.selector));
+          const aitEls = cmd.steps ? resolveLocator(cmd.steps, null, frameDoc) : Array.from(frameDoc.querySelectorAll(cmd.selector));
           result.result = aitEls.map(el => el.innerText);
           break;
         }
 
         case 'allTextContents': {
-          const atcEls = cmd.steps ? resolveLocator(cmd.steps, null) : Array.from(document.querySelectorAll(cmd.selector));
+          const atcEls = cmd.steps ? resolveLocator(cmd.steps, null, frameDoc) : Array.from(frameDoc.querySelectorAll(cmd.selector));
           result.result = atcEls.map(el => el.textContent || '');
           break;
         }
 
         case 'getAttribute': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = el.getAttribute(cmd.name);
           break;
         }
 
         case 'textContent': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = el.textContent;
           break;
         }
 
         case 'innerHTML': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = el.innerHTML;
           break;
         }
 
         case 'boundingBox': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           const bbr = el.getBoundingClientRect();
           result.result = bbr.width === 0 && bbr.height === 0 ? null : { x: bbr.x, y: bbr.y, width: bbr.width, height: bbr.height };
           break;
@@ -578,31 +628,31 @@ function clientScript() {
         // ---- state queries ----
 
         case 'isChecked': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = !!el.checked;
           break;
         }
 
         case 'isEnabled': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = !el.disabled;
           break;
         }
 
         case 'isDisabled': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = !!el.disabled;
           break;
         }
 
         case 'isEditable': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           result.result = !el.readOnly && !el.disabled;
           break;
         }
 
         case 'isHidden': {
-          const hidEls = cmd.steps ? resolveLocator(cmd.steps, null) : (document.querySelector(cmd.selector) ? [document.querySelector(cmd.selector)] : []);
+          const hidEls = cmd.steps ? resolveLocator(cmd.steps, null, frameDoc) : (frameDoc.querySelector(cmd.selector) ? [frameDoc.querySelector(cmd.selector)] : []);
           if (hidEls.length === 0) { result.result = true; break; }
           const hidr = hidEls[0].getBoundingClientRect();
           result.result = !(hidr.width > 0 && hidr.height > 0 && getComputedStyle(hidEls[0]).visibility !== 'hidden');
@@ -612,25 +662,25 @@ function clientScript() {
         // ---- form actions ----
 
         case 'check': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           if (!el.checked) el.click();
           break;
         }
 
         case 'uncheck': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           if (el.checked) el.click();
           break;
         }
 
         case 'setChecked': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           if (!!cmd.checked !== !!el.checked) el.click();
           break;
         }
 
         case 'selectOption': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           const vals = Array.isArray(cmd.values) ? cmd.values : [cmd.values];
           const opts = Array.from(el.options);
           for (const opt of opts) {
@@ -654,7 +704,7 @@ function clientScript() {
         // ---- element interaction ----
 
         case 'hover': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           const hvr = el.getBoundingClientRect();
           const hx = Math.round(hvr.left + hvr.width / 2);
           const hy = Math.round(hvr.top  + hvr.height / 2);
@@ -666,51 +716,53 @@ function clientScript() {
         }
 
         case 'focus': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           el.focus();
           break;
         }
 
         case 'blur': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           el.blur();
           break;
         }
 
         case 'press': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           el.focus();
+          const activeEl = frameDoc.activeElement || el;
           const { modifiers: prMods, key: prMain } = parseCompoundKey(cmd.key);
-          for (const mod of prMods) { setModifier(mod, true); dispatchKeyEvent('keydown', resolveKey(mod)); }
+          for (const mod of prMods) { setModifier(mod, true); dispatchKeyEvent('keydown', resolveKey(mod), activeEl); }
           const prKeyDef = resolveKey(prMain);
-          dispatchKeyEvent('keydown', prKeyDef);
+          dispatchKeyEvent('keydown', prKeyDef, activeEl);
           if (cmd.delay) await delay(cmd.delay);
           const prIsPrintable = prKeyDef.key.length === 1;
           if (prIsPrintable || prMain === 'Enter' || prMain === 'Backspace' || prMain === 'Delete') {
-            if (prIsPrintable) dispatchKeyEvent('keypress', prKeyDef);
-            handleKeyEffect(prMain);
+            if (prIsPrintable) dispatchKeyEvent('keypress', prKeyDef, activeEl);
+            handleKeyEffect(prMain, activeEl);
           }
-          dispatchKeyEvent('keyup', prKeyDef);
-          for (let pi = prMods.length - 1; pi >= 0; pi--) { dispatchKeyEvent('keyup', resolveKey(prMods[pi])); setModifier(prMods[pi], false); }
+          dispatchKeyEvent('keyup', prKeyDef, activeEl);
+          for (let pi = prMods.length - 1; pi >= 0; pi--) { dispatchKeyEvent('keyup', resolveKey(prMods[pi]), activeEl); setModifier(prMods[pi], false); }
           break;
         }
 
         case 'pressSequentially': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           el.focus();
+          const seqActiveEl = frameDoc.activeElement || el;
           for (const ch of cmd.text) {
             const psKD = resolveKey(ch);
-            dispatchKeyEvent('keydown', psKD);
-            dispatchKeyEvent('keypress', psKD);
-            insertCharIntoActive(ch);
-            dispatchKeyEvent('keyup', psKD);
+            dispatchKeyEvent('keydown', psKD, seqActiveEl);
+            dispatchKeyEvent('keypress', psKD, seqActiveEl);
+            insertCharIntoActive(ch, seqActiveEl);
+            dispatchKeyEvent('keyup', psKD, seqActiveEl);
             if (cmd.delay) await delay(cmd.delay);
           }
           break;
         }
 
         case 'dispatchEvent': {
-          const el = await getEl(cmd, timeout);
+          const el = await getEl(cmd, timeout, frameDoc);
           el.dispatchEvent(new Event(cmd.eventType, { bubbles: true, cancelable: true }));
           break;
         }
@@ -718,10 +770,9 @@ function clientScript() {
         // ---- waiting ----
 
         case 'waitForFunction': {
-          const wfFn = new Function('return (' + cmd.expression + ')');
           const wfStart = Date.now();
           while (true) {
-            const wfVal = await Promise.resolve(wfFn.call(window));
+            const wfVal = await Promise.resolve(frameWin.eval('(' + cmd.expression + ')'));
             if (wfVal) { result.result = wfVal; break; }
             if (Date.now() - wfStart > timeout) throw new Error('waitForFunction timed out after ' + timeout + 'ms');
             await delay(cmd.polling || 100);
@@ -732,7 +783,7 @@ function clientScript() {
         case 'waitForURL': {
           const wuStart = Date.now();
           while (true) {
-            const wuUrl = window.__pw_url || document.URL;
+            const wuUrl = frameWin.__pw_url || frameDoc.URL;
             let wuMatch = false;
             if (cmd.matcherType === 'string') wuMatch = wuUrl.includes(cmd.matcherValue);
             else if (cmd.matcherType === 'regexp') wuMatch = new RegExp(cmd.matcherValue, cmd.matcherFlags || '').test(wuUrl);
@@ -743,11 +794,25 @@ function clientScript() {
           break;
         }
 
+        // ---- frames ----
+
+        case 'queryFrames': {
+          const iframes = Array.from(document.querySelectorAll('iframe'));
+          result.result = iframes.map(function (iframe, i) {
+            return {
+              name: iframe.getAttribute('name') || '',
+              url: (iframe.contentDocument && iframe.contentDocument.URL) || iframe.src || '',
+              index: i,
+            };
+          });
+          break;
+        }
+
         // ---- drag & drop ----
 
         case 'dragAndDrop': {
-          const srcEl = await waitForElement(cmd.source, timeout);
-          const tgtEl = await waitForElement(cmd.target, timeout);
+          const srcEl = await waitForElement(cmd.source, timeout, frameDoc);
+          const tgtEl = await waitForElement(cmd.target, timeout, frameDoc);
           const dsr = srcEl.getBoundingClientRect();
           const dtr = tgtEl.getBoundingClientRect();
           const dsx = Math.round(dsr.left + dsr.width  / 2), dsy = Math.round(dsr.top + dsr.height / 2);

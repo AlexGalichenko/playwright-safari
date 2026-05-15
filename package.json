@@ -4,7 +4,8 @@
   "description": "playwright safari",
   "main": "index.js",
   "scripts": {
-    "debug": "playwright test --ui"
+    "debug": "playwright test --ui",
+    "test": "playwright test"
   },
   "repository": {
     "type": "git",

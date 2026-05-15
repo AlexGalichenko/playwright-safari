@@ -1,6 +1,8 @@
 export { Browser } from './Browser';
 export { Page } from './Page';
 export { Locator } from './Locator';
+export { Frame } from './Frame';
+export { FrameLocator } from './FrameLocator';
 export { Keyboard } from './Keyboard';
 export { Mouse } from './Mouse';
 export { Dialog } from './Dialog';
@@ -12,3 +14,4 @@ export type { NavigateFn, ScreenshotFn, SetViewportSizeFn, UrlMatcher, ProxyRequ
 export type { FulfillOptions } from './Route';
 export type { SelectOption } from './Locator';
 export type { DialogType } from './Dialog';
+export type { FrameInfo } from './Frame';

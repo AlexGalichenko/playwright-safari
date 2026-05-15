@@ -56,7 +56,8 @@ Every page navigation is routed through a local proxy (`/__proxy/fetch?url=…`)
 | `setViewportSize()` / `viewportSize()` | ❌ | via WebDriver session |
 | `exposeFunction(name, fn)` | ❌ | bridge browser→Node function calls |
 | `setExtraHTTPHeaders()` | ❌ | add headers to proxied fetches |
-| `frames()` / `mainFrame()` | ❌ | iframe support (architecturally complex) |
+| `frames()` / `mainFrame()` / `frame()` | ✅ | same-origin iframes via main-frame WS; named or positional |
+| `frameLocator(selector)` | ✅ | CSS-selector-based; supports nested chains |
 
 ### Locator
 

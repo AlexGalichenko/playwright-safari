@@ -11,6 +11,9 @@ import { Mouse } from './Mouse';
 import { Dialog, DialogType } from './Dialog';
 import { ConsoleMessage } from './ConsoleMessage';
 import type { SelectOption } from './Locator';
+import { Frame } from './Frame';
+import type { FrameInfo } from './Frame';
+import { FrameLocator } from './FrameLocator';
 
 const execAsync = promisify(exec);
 
@@ -447,5 +450,34 @@ export class Page {
 
   async innerText(selector: string, options: { timeout?: number } = {}): Promise<string> {
     return this.locator(selector).innerText(options);
+  }
+
+  // Returns a FrameLocator that scopes all locator operations to the iframe
+  // matched by the CSS selector. Equivalent to Playwright's frameLocator().
+  frameLocator(selector: string): FrameLocator {
+    return new FrameLocator(this.proxy, '__selector:' + selector);
+  }
+
+  // ---- frame access ----
+
+  // Returns the main frame (the top-level page document).
+  mainFrame(): Frame {
+    return new Frame(this.proxy, '', '', -1);
+  }
+
+  // Returns a Frame targeting a named iframe. Commands are routed via the main
+  // frame's WebSocket using the iframe's name attribute for document lookup.
+  frame(options: { name: string }): Frame {
+    return new Frame(this.proxy, options.name, '', 0);
+  }
+
+  // Queries the page for all iframes and returns Frame objects for each,
+  // with the main frame at index 0.
+  async frames(): Promise<Frame[]> {
+    const infos = await this.proxy.sendCommand<FrameInfo[]>({ type: 'queryFrames' });
+    return [
+      this.mainFrame(),
+      ...infos.map(info => new Frame(this.proxy, info.name, info.url, info.index)),
+    ];
   }
 }
