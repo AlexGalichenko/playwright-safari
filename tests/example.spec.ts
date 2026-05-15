@@ -523,7 +523,7 @@ test('dialog — prompt with text', async ({ proxyPage: page }) => {
   });
 
   setTimeout(() => {
-    page.evaluate('window._promptResult = prompt("Enter your name:", "DefaultName")');
+    page.evaluate('(async () => { window._promptResult = await prompt("Enter your name:", "DefaultName"); })()');
   }, 50);
 
   await new Promise(r => setTimeout(r, 500));

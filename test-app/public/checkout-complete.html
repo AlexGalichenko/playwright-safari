@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swag Labs – Order Complete</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">Swag Labs</span>
+    <a class="cart-link" href="/">🛒</a>
+  </header>
+
+  <nav>
+    <a href="/">Home</a>
+    <a href="/inventory.html">Products</a>
+  </nav>
+
+  <div class="page-content">
+    <div class="confirm-box">
+      <div class="confirm-header" data-test="complete-header">
+        Thank you for your order!
+      </div>
+      <p class="confirm-text" data-test="complete-text">
+        Your order has been dispatched and will arrive just as fast as the pony can get there!
+      </p>
+      <a class="btn" href="/inventory.html" style="margin-top: 24px;">Back Home</a>
+    </div>
+  </div>
+
+  <script>
+    // Clear cart on completion
+    localStorage.removeItem('cart-contents');
+  </script>
+</body>
+</html>

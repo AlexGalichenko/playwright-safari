@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swag Labs – Checkout Overview</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">Swag Labs</span>
+    <a class="cart-link" data-test="shopping-cart-link" href="/cart.html">🛒 Cart</a>
+  </header>
+
+  <nav>
+    <a href="/">Home</a>
+    <a href="/inventory.html">Products</a>
+    <a href="/cart.html">Cart</a>
+  </nav>
+
+  <div class="title-bar">
+    <span class="title" data-test="title">Checkout: Overview</span>
+  </div>
+
+  <div class="page-content">
+    <!-- Cart items rendered by JS from localStorage -->
+    <div id="cart-items"></div>
+
+    <div class="summary-table" style="max-width:400px;">
+      <div class="summary-row">
+        <span data-test="subtotal-label" id="subtotal-label"></span>
+      </div>
+      <div class="summary-row">
+        <span data-test="tax-label" id="tax-label"></span>
+      </div>
+      <div class="summary-row">
+        <span data-test="total-label" id="total-label"></span>
+      </div>
+    </div>
+
+    <div style="margin-top: 24px;">
+      <a class="btn btn-secondary" href="/cart.html">Back</a>
+      <a class="btn" data-test="finish" href="/checkout-complete.html">Finish</a>
+    </div>
+  </div>
+
+  <script>
+    var PRODUCTS = {
+      'sauce-labs-backpack':       { name: 'Sauce Labs Backpack',         price: 29.99 },
+      'sauce-labs-bike-light':     { name: 'Sauce Labs Bike Light',       price: 9.99  },
+      'sauce-labs-bolt-t-shirt':   { name: 'Sauce Labs Bolt T-Shirt',     price: 15.99 },
+      'sauce-labs-fleece-jacket':  { name: 'Sauce Labs Fleece Jacket',    price: 49.99 },
+      'sauce-labs-onesie':         { name: 'Sauce Labs Onesie',           price: 7.99  },
+      'test-allthethings-t-shirt': { name: 'Test.allTheThings() T-Shirt', price: 15.99 },
+    };
+
+    window.addEventListener('DOMContentLoaded', function () {
+      var cart = [];
+      try { cart = JSON.parse(localStorage.getItem('cart-contents') || '[]'); } catch (e) {}
+
+      var container = document.getElementById('cart-items');
+      var subtotal = 0;
+
+      container.innerHTML = cart.map(function (slug) {
+        var p = PRODUCTS[slug] || { name: slug, price: 0 };
+        subtotal += p.price;
+        return '<div class="cart-item inventory_item" data-test="inventory-item">' +
+               '  <div>' +
+               '    <div class="inventory_item_name">' + p.name + '</div>' +
+               '    <div class="inventory_item_price">$' + p.price.toFixed(2) + '</div>' +
+               '  </div>' +
+               '  <div style="color:#999;font-size:12px;">Qty: 1</div>' +
+               '</div>';
+      }).join('');
+
+      var tax   = Math.round(subtotal * 0.08 * 100) / 100;
+      var total = Math.round((subtotal + tax) * 100) / 100;
+
+      document.getElementById('subtotal-label').textContent =
+        'Item total: $' + subtotal.toFixed(2);
+      document.getElementById('tax-label').textContent =
+        'Tax: $' + tax.toFixed(2);
+      document.getElementById('total-label').textContent =
+        'Total: $' + total.toFixed(2);
+    });
+  </script>
+</body>
+</html>

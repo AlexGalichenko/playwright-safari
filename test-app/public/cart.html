@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swag Labs – Cart</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">Swag Labs</span>
+    <a class="cart-link" data-test="shopping-cart-link" href="/cart.html">🛒 Cart</a>
+  </header>
+
+  <nav>
+    <a href="/">Home</a>
+    <a href="/inventory.html">Products</a>
+  </nav>
+
+  <div class="title-bar">
+    <span class="title" data-test="title">Your Cart</span>
+  </div>
+
+  <div class="page-content">
+    <div id="cart-items"></div>
+
+    <div style="margin-top: 20px;">
+      <a class="btn btn-secondary" href="/inventory.html">Continue Shopping</a>
+      <a class="btn" data-test="checkout" href="/checkout-step-one.html">Checkout</a>
+    </div>
+  </div>
+
+  <script>
+    var PRODUCTS = {
+      'sauce-labs-backpack':       { name: 'Sauce Labs Backpack',         price: 29.99 },
+      'sauce-labs-bike-light':     { name: 'Sauce Labs Bike Light',       price: 9.99  },
+      'sauce-labs-bolt-t-shirt':   { name: 'Sauce Labs Bolt T-Shirt',     price: 15.99 },
+      'sauce-labs-fleece-jacket':  { name: 'Sauce Labs Fleece Jacket',    price: 49.99 },
+      'sauce-labs-onesie':         { name: 'Sauce Labs Onesie',           price: 7.99  },
+      'test-allthethings-t-shirt': { name: 'Test.allTheThings() T-Shirt', price: 15.99 },
+    };
+
+    window.addEventListener('DOMContentLoaded', function () {
+      var cart = [];
+      try { cart = JSON.parse(localStorage.getItem('cart-contents') || '[]'); } catch (e) {}
+
+      var container = document.getElementById('cart-items');
+      if (cart.length === 0) {
+        container.innerHTML = '<p style="color:#999;padding:20px 0;">Your cart is empty.</p>';
+        return;
+      }
+
+      container.innerHTML = cart.map(function (slug) {
+        var p = PRODUCTS[slug] || { name: slug, price: 0 };
+        return '<div class="cart-item inventory_item" data-test="inventory-item">' +
+               '  <div>' +
+               '    <div class="inventory_item_name">' + p.name + '</div>' +
+               '    <div class="inventory_item_price">$' + p.price.toFixed(2) + '</div>' +
+               '  </div>' +
+               '  <div style="color:#999;font-size:12px;">Qty: 1</div>' +
+               '</div>';
+      }).join('');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swag Labs – Checkout</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">Swag Labs</span>
+    <a class="cart-link" data-test="shopping-cart-link" href="/cart.html">🛒 Cart</a>
+  </header>
+
+  <nav>
+    <a href="/">Home</a>
+    <a href="/inventory.html">Products</a>
+    <a href="/cart.html">Cart</a>
+  </nav>
+
+  <div class="title-bar">
+    <span class="title" data-test="title">Checkout: Your Information</span>
+  </div>
+
+  <div class="page-content">
+    <!--
+      GET form: clientScript intercepts submit and navigates through the proxy,
+      appending first-name / last-name / postal-code as query params.
+    -->
+    <form id="checkout-form" method="get" action="/checkout-step-two.html"
+          style="max-width: 400px;">
+      <div style="margin-bottom: 14px;">
+        <label for="first-name" style="display:block;font-size:13px;margin-bottom:4px;">First Name</label>
+        <input type="text" id="first-name" name="firstName"
+               style="width:100%;padding:9px;border:1px solid #ccc;border-radius:4px;font-size:14px;">
+      </div>
+      <div style="margin-bottom: 14px;">
+        <label for="last-name" style="display:block;font-size:13px;margin-bottom:4px;">Last Name</label>
+        <input type="text" id="last-name" name="lastName"
+               style="width:100%;padding:9px;border:1px solid #ccc;border-radius:4px;font-size:14px;">
+      </div>
+      <div style="margin-bottom: 20px;">
+        <label for="postal-code" style="display:block;font-size:13px;margin-bottom:4px;">Zip/Postal Code</label>
+        <input type="text" id="postal-code" name="postalCode"
+               style="width:100%;padding:9px;border:1px solid #ccc;border-radius:4px;font-size:14px;">
+      </div>
+      <div>
+        <a class="btn btn-secondary" href="/cart.html">Cancel</a>
+        <input type="submit" data-test="continue" value="Continue"
+               style="padding:10px 20px;background:#3ddc91;border:none;border-radius:4px;
+                      color:white;font-size:14px;font-weight:bold;cursor:pointer;">
+      </div>
+    </form>
+  </div>
+</body>
+</html>

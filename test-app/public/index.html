@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swag Labs</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-box">
+      <div class="login-logo">Swag Labs</div>
+
+      <!--
+        GET form: on submit the proxy clientScript intercepts the event,
+        appends form fields as query params, and navigates through the proxy.
+        Credentials: standard_user / secret_sauce
+      -->
+      <form id="login-form" method="get" action="/inventory.html">
+        <input type="text" id="user-name" name="username"
+               placeholder="Username" autocomplete="off">
+        <input type="password" id="password" name="password"
+               placeholder="Password" autocomplete="off">
+        <input type="submit" id="login-button" value="Login">
+      </form>
+    </div>
+  </div>
+</body>
+</html>
