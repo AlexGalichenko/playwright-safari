@@ -1,4 +1,12 @@
+import { writeFile } from 'fs/promises';
 import { ProxyServer } from './proxy/ProxyServer';
+import { cropPng } from './proxy/PngCrop';
+
+export interface FilePayload {
+  name: string;
+  mimeType: string;
+  buffer: Buffer;
+}
 
 export interface SelectOption {
   value?: string;
@@ -23,51 +31,52 @@ export class Locator {
     private readonly proxy: ProxyServer,
     private readonly steps: LocatorStep[],
     private readonly frameId: string = '',
+    private readonly screenshotFn?: () => Promise<Buffer>,
   ) {}
 
   // Builder methods — return new Locator with appended step
 
   getByText(text: string, options: { exact?: boolean } = {}): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'getByText', text, exact: options.exact }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'getByText', text, exact: options.exact }], this.frameId, this.screenshotFn);
   }
 
   getByRole(role: string, options: { name?: string } = {}): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'getByRole', role, name: options.name }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'getByRole', role, name: options.name }], this.frameId, this.screenshotFn);
   }
 
   getByLabel(text: string, options: { exact?: boolean } = {}): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'getByLabel', text, exact: options.exact }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'getByLabel', text, exact: options.exact }], this.frameId, this.screenshotFn);
   }
 
   getByPlaceholder(text: string, options: { exact?: boolean } = {}): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'getByPlaceholder', text, exact: options.exact }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'getByPlaceholder', text, exact: options.exact }], this.frameId, this.screenshotFn);
   }
 
   getByTestId(testId: string): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'getByTestId', testId }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'getByTestId', testId }], this.frameId, this.screenshotFn);
   }
 
   filter(options: { hasText?: string; has?: Locator } = {}): Locator {
     const step: LocatorStep = { type: 'filter' };
     if (options.hasText !== undefined) (step as Extract<LocatorStep, { type: 'filter' }>).hasText = options.hasText;
     if (options.has !== undefined) (step as Extract<LocatorStep, { type: 'filter' }>).has = options.has['steps'];
-    return new Locator(this.proxy, [...this.steps, step], this.frameId);
+    return new Locator(this.proxy, [...this.steps, step], this.frameId, this.screenshotFn);
   }
 
   first(): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'first' }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'first' }], this.frameId, this.screenshotFn);
   }
 
   last(): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'last' }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'last' }], this.frameId, this.screenshotFn);
   }
 
   nth(index: number): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'nth', index }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'nth', index }], this.frameId, this.screenshotFn);
   }
 
   locator(selector: string): Locator {
-    return new Locator(this.proxy, [...this.steps, { type: 'css', selector }], this.frameId);
+    return new Locator(this.proxy, [...this.steps, { type: 'css', selector }], this.frameId, this.screenshotFn);
   }
 
   // Action methods
@@ -213,5 +222,59 @@ export class Locator {
   async dispatchEvent(type: string, options: { timeout?: number } = {}): Promise<void> {
     const timeout = options.timeout ?? 30_000;
     await this.proxy.sendCommand({ type: 'dispatchEvent', steps: this.steps, eventType: type, timeout, frameId: this.frameId }, timeout + 1_000);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async evaluate<T = unknown>(fn: string | ((el: any, arg?: unknown) => T), arg?: unknown, options: { timeout?: number } = {}): Promise<T> {
+    const timeout = options.timeout ?? 30_000;
+    const fnStr = typeof fn === 'function' ? fn.toString() : fn;
+    return this.proxy.sendCommand<T>({ type: 'locatorEvaluate', steps: this.steps, fn: fnStr, arg, timeout, frameId: this.frameId }, timeout + 1_000);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async evaluateAll<T = unknown>(fn: string | ((els: any[], arg?: unknown) => T), arg?: unknown): Promise<T> {
+    const fnStr = typeof fn === 'function' ? fn.toString() : fn;
+    return this.proxy.sendCommand<T>({ type: 'locatorEvaluateAll', steps: this.steps, fn: fnStr, arg, frameId: this.frameId });
+  }
+
+  async scrollIntoViewIfNeeded(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'scrollIntoViewIfNeeded', steps: this.steps, timeout, frameId: this.frameId }, timeout + 1_000);
+  }
+
+  async tap(options: { timeout?: number } = {}): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    await this.proxy.sendCommand({ type: 'tap', steps: this.steps, timeout, frameId: this.frameId }, timeout + 1_000);
+  }
+
+  async setInputFiles(
+    files: string | string[] | FilePayload | FilePayload[],
+    options: { timeout?: number } = {},
+  ): Promise<void> {
+    const timeout = options.timeout ?? 30_000;
+    const list = Array.isArray(files) ? files : [files];
+    const serialized = await Promise.all(list.map(async f => {
+      if (typeof f === 'string') {
+        const { readFile } = await import('fs/promises');
+        const { basename } = await import('path');
+        const content = await readFile(f);
+        return { name: basename(f), mimeType: 'application/octet-stream', content: content.toString('base64') };
+      }
+      return { name: f.name, mimeType: f.mimeType, content: f.buffer.toString('base64') };
+    }));
+    await this.proxy.sendCommand({ type: 'setInputFiles', steps: this.steps, files: serialized, timeout, frameId: this.frameId }, timeout + 1_000);
+  }
+
+  async screenshot(options: { path?: string; timeout?: number } = {}): Promise<Buffer> {
+    if (!this.screenshotFn) throw new Error('No screenshot provider — use Page.locator() instead of Frame.locator()');
+    const timeout = options.timeout ?? 30_000;
+    const box = await this.proxy.sendCommand<{ x: number; y: number; width: number; height: number } | null>(
+      { type: 'boundingBox', steps: this.steps, timeout, frameId: this.frameId }, timeout + 1_000,
+    );
+    if (!box) throw new Error('Element has no bounding box (not visible or not in DOM)');
+    const full = await this.screenshotFn();
+    const buf = cropPng(full, Math.round(box.x), Math.round(box.y), Math.round(box.width), Math.round(box.height));
+    if (options.path) await writeFile(options.path, buf);
+    return buf;
   }
 }

@@ -118,32 +118,32 @@ export class Page {
   }
   
   locator(selector: string): Locator {
-    return new Locator(this.proxy, [{ type: 'css', selector }]);
+    return new Locator(this.proxy, [{ type: 'css', selector }], '', this.screenshotFn);
   }
 
   getByText(text: string, options: { exact?: boolean } = {}): Locator {
     const step: LocatorStep = { type: 'getByText', text, exact: options.exact };
-    return new Locator(this.proxy, [step]);
+    return new Locator(this.proxy, [step], '', this.screenshotFn);
   }
 
   getByRole(role: string, options: { name?: string } = {}): Locator {
     const step: LocatorStep = { type: 'getByRole', role, name: options.name };
-    return new Locator(this.proxy, [step]);
+    return new Locator(this.proxy, [step], '', this.screenshotFn);
   }
 
   getByLabel(text: string, options: { exact?: boolean } = {}): Locator {
     const step: LocatorStep = { type: 'getByLabel', text, exact: options.exact };
-    return new Locator(this.proxy, [step]);
+    return new Locator(this.proxy, [step], '', this.screenshotFn);
   }
 
   getByPlaceholder(text: string, options: { exact?: boolean } = {}): Locator {
     const step: LocatorStep = { type: 'getByPlaceholder', text, exact: options.exact };
-    return new Locator(this.proxy, [step]);
+    return new Locator(this.proxy, [step], '', this.screenshotFn);
   }
 
   getByTestId(testId: string): Locator {
     const step: LocatorStep = { type: 'getByTestId', testId };
-    return new Locator(this.proxy, [step]);
+    return new Locator(this.proxy, [step], '', this.screenshotFn);
   }
 
   route(matcher: UrlMatcher, handler: (route: Route) => void | Promise<void>): void {

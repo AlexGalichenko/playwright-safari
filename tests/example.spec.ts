@@ -809,3 +809,278 @@ test('setViewportSize', async ({ proxyPage: page }) => {
   expect(newWidth).toBeLessThanOrEqual(640);
   expect(newHeight).toBeLessThanOrEqual(480);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for locator.evaluate / evaluateAll / screenshot / scrollIntoViewIfNeeded
+// setInputFiles / tap
+// ════════════════════════════════════════════════════════════════════════════
+
+test('locator.evaluate — string fn', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  const tagName = await page.locator('#user-name').evaluate<string>('el => el.tagName.toLowerCase()');
+  expect(tagName).toBe('input');
+});
+
+test('locator.evaluate — function with arg', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  const result = await page.locator('#user-name').evaluate(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (el: HTMLInputElement, attr: any) => el.getAttribute(attr),
+    'type',
+  );
+  expect(result).toBe('text');
+});
+
+test('locator.evaluateAll', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+  await page.click('#login-button');
+  await page.waitForSelector('.inventory_item_name');
+
+  const names = await page.locator('.inventory_item_name').evaluateAll<string[]>(
+    (els: HTMLElement[]) => els.map(el => el.textContent?.trim() ?? ''),
+  );
+
+  expect(Array.isArray(names)).toBe(true);
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.some(n => n.includes('Sauce'))).toBe(true);
+});
+
+test('locator.screenshot — crops to element', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  const fullBuf = await page.screenshot();
+  const elBuf = await page.locator('#login-button').screenshot();
+
+  // Valid PNG magic bytes
+  expect(elBuf[0]).toBe(0x89);
+  expect(elBuf[1]).toBe(0x50);
+  expect(elBuf[2]).toBe(0x4e);
+  expect(elBuf[3]).toBe(0x47);
+
+  // Element crop must be smaller than the full-page screenshot
+  expect(elBuf.byteLength).toBeLessThan(fullBuf.byteLength);
+  expect(elBuf.byteLength).toBeGreaterThan(0);
+});
+
+test('locator.scrollIntoViewIfNeeded', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Pick a footer-area element that is likely off screen on first load
+  await page.evaluate(`
+    const el = document.createElement('div');
+    el.id = 'deep-footer';
+    el.textContent = 'Deep Footer';
+    el.style.marginTop = '5000px';
+    document.body.appendChild(el);
+  `);
+
+  const el = page.locator('#deep-footer');
+  await el.scrollIntoViewIfNeeded();
+
+  // After scroll, element should be within the viewport
+  const inView = await page.evaluate(`
+    (() => {
+      const el = document.getElementById('deep-footer');
+      const rect = el.getBoundingClientRect();
+      return rect.top >= 0 && rect.bottom <= window.innerHeight + 50;
+    })()
+  `);
+  expect(inView).toBe(true);
+});
+
+test('locator.setInputFiles', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  // Inject a file input
+  await page.evaluate(`
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'file-input';
+    document.body.appendChild(input);
+  `);
+
+  const fileContent = Buffer.from('hello playwright-safari');
+  await page.locator('#file-input').setInputFiles({
+    name: 'test.txt',
+    mimeType: 'text/plain',
+    buffer: fileContent,
+  });
+
+  const fileName = await page.evaluate<string>(`document.getElementById('file-input').files[0].name`);
+  const fileSize = await page.evaluate<number>(`document.getElementById('file-input').files[0].size`);
+
+  expect(fileName).toBe('test.txt');
+  expect(fileSize).toBe(fileContent.byteLength);
+});
+
+test('locator.tap — fires click on Safari desktop', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const btn = document.createElement('button');
+    btn.id = 'tap-target';
+    btn.textContent = 'Tap Me';
+    window._tapClicked = false;
+    btn.addEventListener('click', () => { window._tapClicked = true; });
+    document.body.appendChild(btn);
+  `);
+
+  await page.locator('#tap-target').tap();
+
+  const clicked = await page.evaluate<boolean>('window._tapClicked');
+  expect(clicked).toBe(true);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for iframe support: page.frame(), page.mainFrame(), page.frameLocator(),
+// page.frames()
+// ════════════════════════════════════════════════════════════════════════════
+
+test('page.mainFrame — basic actions', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  const frame = page.mainFrame();
+  await frame.fill('#user-name', 'standard_user');
+  await frame.fill('#password', 'secret_sauce');
+  await frame.click('#login-button');
+  await frame.waitForSelector('.inventory_list');
+
+  const title = await frame.evaluate<string>('document.title');
+  expect(title).toMatch(/Swag Labs/);
+});
+
+test('page.frame — named iframe fill and evaluate', async ({ proxyPage: page }) => {
+  page.route(url => url === 'https://example-iframe-host.test/', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<html><head></head><body>
+        <iframe name="child" src="https://example-iframe-host.test/child"></iframe>
+      </body></html>`,
+    });
+  });
+  page.route(url => url === 'https://example-iframe-host.test/child', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<html><head></head><body>
+        <input id="iframe-input" type="text" />
+        <p id="iframe-text">Hello from iframe</p>
+      </body></html>`,
+    });
+  });
+
+  await page.goto('https://example-iframe-host.test/');
+  await page.waitForLoadState('networkidle');
+
+  const frame = page.frame({ name: 'child' });
+  await frame.fill('#iframe-input', 'typed in iframe');
+
+  const val = await frame.evaluate<string>(`document.getElementById('iframe-input').value`);
+  expect(val).toBe('typed in iframe');
+
+  const text = await frame.evaluate<string>(`document.getElementById('iframe-text').textContent`);
+  expect(text).toBe('Hello from iframe');
+});
+
+test('page.frame — locator chain inside iframe', async ({ proxyPage: page }) => {
+  page.route(url => url === 'https://example-iframe-host.test/', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<html><head></head><body>
+        <iframe name="child" src="https://example-iframe-host.test/child"></iframe>
+      </body></html>`,
+    });
+  });
+  page.route(url => url === 'https://example-iframe-host.test/child', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<html><head></head><body>
+        <ul id="list">
+          <li class="item">Alpha</li>
+          <li class="item">Beta</li>
+          <li class="item">Gamma</li>
+        </ul>
+      </body></html>`,
+    });
+  });
+
+  await page.goto('https://example-iframe-host.test/');
+  await page.waitForLoadState('networkidle');
+
+  const frame = page.frame({ name: 'child' });
+  const items = frame.locator('.item');
+
+  const count = await items.count();
+  expect(count).toBe(3);
+
+  const firstText = await items.first().innerText();
+  expect(firstText).toBe('Alpha');
+
+  const texts = await items.allInnerTexts();
+  expect(texts).toEqual(['Alpha', 'Beta', 'Gamma']);
+});
+
+test('page.frameLocator — textContent via CSS selector', async ({ proxyPage: page }) => {
+  page.route(url => url === 'https://example-iframe-host.test/', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<html><head></head><body>
+        <iframe id="my-frame" src="https://example-iframe-host.test/child"></iframe>
+      </body></html>`,
+    });
+  });
+  page.route(url => url === 'https://example-iframe-host.test/child', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<html><head></head><body>
+        <h1 id="heading">Frame Heading</h1>
+      </body></html>`,
+    });
+  });
+
+  await page.goto('https://example-iframe-host.test/');
+  await page.waitForLoadState('networkidle');
+
+  const text = await page.frameLocator('#my-frame').locator('#heading').innerText();
+  expect(text).toBe('Frame Heading');
+});
+
+test('page.frames — lists main frame plus iframes', async ({ proxyPage: page }) => {
+  page.route(url => url === 'https://example-iframe-host.test/', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<html><head></head><body>
+        <iframe name="frame-a" src="https://example-iframe-host.test/a"></iframe>
+        <iframe name="frame-b" src="https://example-iframe-host.test/b"></iframe>
+      </body></html>`,
+    });
+  });
+  page.route(url => url === 'https://example-iframe-host.test/a', async route => {
+    await route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>A</body></html>' });
+  });
+  page.route(url => url === 'https://example-iframe-host.test/b', async route => {
+    await route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>B</body></html>' });
+  });
+
+  await page.goto('https://example-iframe-host.test/');
+  await page.waitForLoadState('networkidle');
+
+  const frames = await page.frames();
+  // Main frame + 2 iframes
+  expect(frames.length).toBeGreaterThanOrEqual(3);
+
+  const names = frames.map(f => f.name());
+  expect(names).toContain('frame-a');
+  expect(names).toContain('frame-b');
+});

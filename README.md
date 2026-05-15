@@ -48,14 +48,14 @@ Every page navigation is routed through a local proxy (`/__proxy/fetch?url=…`)
 | `dragAndDrop(source, target)` | ✅ | DragEvent + MouseEvent sequence |
 | `on('dialog', handler)` | ✅ | alert/confirm/prompt — confirm/prompt return value must be pre-set via `dialog.accept()` before triggering |
 | `on('console', handler)` | ✅ | captures `console.log/warn/error/info/debug` |
-| `isVisible(selector)` | ❌ | shortcut (locator covers it) |
-| `innerText(selector)` | ❌ | shortcut (locator covers it) |
-| `reload()` | ❌ | WS navigate to same URL |
-| `goBack()` / `goForward()` | ❌ | `history.back/forward` via evaluate |
-| `addScriptTag()` / `addStyleTag()` | ❌ | inject assets into live page |
-| `setViewportSize()` / `viewportSize()` | ❌ | via WebDriver session |
-| `exposeFunction(name, fn)` | ❌ | bridge browser→Node function calls |
-| `setExtraHTTPHeaders()` | ❌ | add headers to proxied fetches |
+| `isVisible(selector)` | ✅ | delegates to `locator(selector).isVisible()` |
+| `innerText(selector)` | ✅ | delegates to `locator(selector).innerText()` |
+| `reload()` | ✅ | navigates to current `__pw_url` via WS |
+| `goBack()` / `goForward()` | ✅ | `history.back/forward` via evaluate |
+| `addScriptTag()` / `addStyleTag()` | ✅ | injects into live page via evaluate |
+| `setViewportSize()` / `viewportSize()` | ✅ | via WebDriver session window rect |
+| `exposeFunction(name, fn)` | ✅ | bridge browser→Node function calls |
+| `setExtraHTTPHeaders()` | ✅ | added to every proxied fetch |
 | `frames()` / `mainFrame()` / `frame()` | ✅ | same-origin iframes via main-frame WS; named or positional |
 | `frameLocator(selector)` | ✅ | CSS-selector-based; supports nested chains |
 
@@ -86,12 +86,12 @@ Every page navigation is routed through a local proxy (`/__proxy/fetch?url=…`)
 | `textContent()` | ✅ | |
 | `boundingBox()` | ✅ | |
 | `dispatchEvent(type)` | ✅ | |
-| `evaluate(fn, arg?)` | ❌ | fn+arg form (expression string works via `page.evaluate`) |
-| `evaluateAll(fn)` | ❌ | |
-| `screenshot()` | ❌ | crop page screenshot to element bbox |
-| `scrollIntoViewIfNeeded()` | ❌ | `el.scrollIntoView()` |
-| `setInputFiles()` | ❌ | file upload (WebDriver required) |
-| `tap()` | ❌ | touch event sequence |
+| `evaluate(fn, arg?)` | ✅ | fn serialised via `toString()`; called with `(element, arg)` |
+| `evaluateAll(fn)` | ✅ | called with `(elements[], arg)` |
+| `screenshot()` | ✅ | crops full-page PNG to element bounding box (pure-Node zlib, no extra deps) |
+| `scrollIntoViewIfNeeded()` | ✅ | `el.scrollIntoView({ block:'nearest' })` only when outside viewport |
+| `setInputFiles()` | ✅ | base64 content sent over WS; `DataTransfer` API assigns to `input.files` |
+| `tap()` | ✅ | `touchstart` + `touchend` + `.click()` via TouchEvent API |
 
 ### Keyboard
 

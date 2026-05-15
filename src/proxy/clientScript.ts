@@ -78,7 +78,7 @@ function clientScript() {
       for (let i = 0; i < parts.length; i++) {
         const sel = i === 0 ? parts[0].slice(11) : parts[i];
         const iframe = doc.querySelector(sel);
-        if (!iframe || !iframe.contentDocument) return document;
+        if (!iframe || !iframe.contentDocument) return null;
         doc = iframe.contentDocument;
       }
       return doc;
@@ -92,7 +92,21 @@ function clientScript() {
       const idx = parseInt(frameId.slice(8), 10);
       if (!isNaN(idx) && window.frames[idx]) return window.frames[idx].document;
     }
-    return document;
+    return null;
+  }
+
+  // Polls until getFrameDoc returns a non-null document, or times out.
+  function waitForFrameDoc(frameId, timeout) {
+    if (!frameId) return Promise.resolve(document);
+    const deadline = Date.now() + timeout;
+    return new Promise(function(resolve, reject) {
+      (function check() {
+        const doc = getFrameDoc(frameId);
+        if (doc) return resolve(doc);
+        if (Date.now() >= deadline) return reject(new Error('Timeout waiting for frame: ' + frameId));
+        setTimeout(check, 50);
+      })();
+    });
   }
 
   // ---- locator resolution ----
@@ -491,7 +505,7 @@ function clientScript() {
   async function handleCommand(cmd) {
     let result = { id: cmd.id, success: true };
     const timeout = cmd.timeout ?? 30000;
-    const frameDoc = getFrameDoc(cmd.frameId);
+    const frameDoc = await waitForFrameDoc(cmd.frameId || '', timeout);
     const frameWin = frameDoc.defaultView || window;
 
     try {
@@ -791,6 +805,64 @@ function clientScript() {
             if (Date.now() - wuStart > timeout) throw new Error('waitForURL timed out — URL: ' + wuUrl);
             await delay(100);
           }
+          break;
+        }
+
+        // ---- locator evaluate ----
+
+        case 'locatorEvaluate': {
+          const el = await getEl(cmd, timeout, frameDoc);
+          const fn = frameWin.eval('(' + cmd.fn + ')');
+          result.result = await Promise.resolve(fn(el, cmd.arg));
+          break;
+        }
+
+        case 'locatorEvaluateAll': {
+          const evalAllEls = cmd.steps ? resolveLocator(cmd.steps, null, frameDoc) : Array.from(frameDoc.querySelectorAll(cmd.selector));
+          const fn = frameWin.eval('(' + cmd.fn + ')');
+          result.result = await Promise.resolve(fn(evalAllEls, cmd.arg));
+          break;
+        }
+
+        case 'scrollIntoViewIfNeeded': {
+          const el = await getEl(cmd, timeout, frameDoc);
+          const r = el.getBoundingClientRect();
+          const inView = r.top >= 0 && r.left >= 0
+            && r.bottom <= (frameWin.innerHeight || frameDoc.documentElement.clientHeight)
+            && r.right  <= (frameWin.innerWidth  || frameDoc.documentElement.clientWidth);
+          if (!inView) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          break;
+        }
+
+        case 'tap': {
+          const el = await getEl(cmd, timeout, frameDoc);
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          const r = el.getBoundingClientRect();
+          const tx = Math.round(r.left + r.width  / 2);
+          const ty = Math.round(r.top  + r.height / 2);
+          try {
+            const touch = new Touch({ identifier: Date.now(), target: el, clientX: tx, clientY: ty });
+            el.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [touch], targetTouches: [touch], changedTouches: [touch] }));
+            el.dispatchEvent(new TouchEvent('touchend',   { bubbles: true, cancelable: true, touches: [],      targetTouches: [],      changedTouches: [touch] }));
+          } catch (_) {
+            // TouchEvent/Touch not available on Safari desktop — fall through to click
+          }
+          el.click();
+          break;
+        }
+
+        case 'setInputFiles': {
+          const el = await getEl(cmd, timeout, frameDoc);
+          const dt = new DataTransfer();
+          for (const f of cmd.files) {
+            const bstr = atob(f.content);
+            const bytes = new Uint8Array(bstr.length);
+            for (let i = 0; i < bstr.length; i++) bytes[i] = bstr.charCodeAt(i);
+            dt.items.add(new File([bytes.buffer], f.name, { type: f.mimeType }));
+          }
+          el.files = dt.files;
+          el.dispatchEvent(new Event('input',  { bubbles: true, cancelable: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
           break;
         }
 
