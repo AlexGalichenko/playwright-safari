@@ -55,7 +55,11 @@ export const matchers = {
     if (!(received instanceof Locator))
       return { message: () => 'toBeVisible expects a Locator', pass: false };
     const timeout = options.timeout ?? this.timeout;
-    const { pass } = await poll(() => received.isVisible(), v => v, timeout);
+    const isNot = this.isNot;
+    // When used with `.not`, invert the check so the poll exits immediately
+    // when the element is already not visible, instead of waiting the full timeout.
+    const { pass: pollPass } = await poll(() => received.isVisible(), v => isNot ? !v : v, timeout);
+    const pass = isNot ? !pollPass : pollPass;
     return {
       pass,
       message: () => this.isNot
@@ -72,7 +76,11 @@ export const matchers = {
     if (!(received instanceof Locator))
       return { message: () => 'toBeHidden expects a Locator', pass: false };
     const timeout = options.timeout ?? this.timeout;
-    const { pass } = await poll(() => received.isHidden(), v => v, timeout);
+    const isNot = this.isNot;
+    // When used with `.not`, invert the check so the poll exits immediately
+    // when the element is already visible, instead of waiting the full timeout.
+    const { pass: pollPass } = await poll(() => received.isHidden(), v => isNot ? !v : v, timeout);
+    const pass = isNot ? !pollPass : pollPass;
     return {
       pass,
       message: () => this.isNot
@@ -89,7 +97,9 @@ export const matchers = {
     if (!(received instanceof Locator))
       return { message: () => 'toBeEnabled expects a Locator', pass: false };
     const timeout = options.timeout ?? this.timeout;
-    const { pass } = await poll(() => received.isEnabled(), v => v, timeout);
+    const isNot = this.isNot;
+    const { pass: pollPass } = await poll(() => received.isEnabled(), v => isNot ? !v : v, timeout);
+    const pass = isNot ? !pollPass : pollPass;
     return {
       pass,
       message: () => this.isNot
@@ -106,7 +116,9 @@ export const matchers = {
     if (!(received instanceof Locator))
       return { message: () => 'toBeDisabled expects a Locator', pass: false };
     const timeout = options.timeout ?? this.timeout;
-    const { pass } = await poll(() => received.isDisabled(), v => v, timeout);
+    const isNot = this.isNot;
+    const { pass: pollPass } = await poll(() => received.isDisabled(), v => isNot ? !v : v, timeout);
+    const pass = isNot ? !pollPass : pollPass;
     return {
       pass,
       message: () => this.isNot

@@ -54,8 +54,9 @@ export class Page {
     proxy.on('browser:console', (msg: Record<string, unknown>) => {
       const handlers = this._eventHandlers.get('console');
       if (!handlers?.size) return;
+      const rawLevel = String(msg.level ?? 'log');
       const c = new ConsoleMessage(
-        String(msg.level ?? 'log'),
+        rawLevel === 'warn' ? 'warning' : rawLevel,
         (msg.args as string[] | undefined) ?? [],
       );
       for (const h of handlers) (h as (c: ConsoleMessage) => void)(c);

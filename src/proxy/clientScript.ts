@@ -30,6 +30,8 @@ function clientScript() {
   // Override alert/confirm/prompt so they don't block JS execution.
   // A 'setDialogResponse' command pre-sets what confirm/prompt returns.
   let _nextDialogResponse = { accept: false, promptText: null };
+  // Queue of pending prompt() Promise resolvers — resolved by setDialogResponse.
+  const _pendingPromptResolvers = [];
   window.alert = function (msg) {
     send({ type: 'event', name: 'dialog', dialogType: 'alert', message: String(msg || '') });
   };
@@ -39,11 +41,14 @@ function clientScript() {
     send({ type: 'event', name: 'dialog', dialogType: 'confirm', message: String(msg || '') });
     return r.accept;
   };
+  // prompt() returns a Promise so that the page.on('dialog') handler has time to
+  // call dialog.accept(text) before the caller gets the result.  Callers must
+  // await the return value: `const v = await prompt(msg, def)`.
   window.prompt = function (msg, def) {
-    const r = _nextDialogResponse;
-    _nextDialogResponse = { accept: false, promptText: null };
     send({ type: 'event', name: 'dialog', dialogType: 'prompt', message: String(msg || ''), defaultValue: String(def || '') });
-    return r.accept ? (r.promptText !== null ? r.promptText : String(def || '')) : null;
+    return new Promise(function (resolve) {
+      _pendingPromptResolvers.push({ resolve: resolve, def: String(def || '') });
+    });
   };
 
   // ---- console forwarding ----
@@ -539,6 +544,9 @@ function clientScript() {
 
         case 'click': {
           const el = await getEl(cmd, timeout, frameDoc);
+          // Focus first so document.activeElement is set — Safari does not
+          // move keyboard focus via a programmatic .click() alone.
+          el.focus();
           // Use the native .click() so the event is trusted — untrusted synthetic
           // click events don't trigger browser default actions like form submission.
           el.click();
@@ -911,7 +919,16 @@ function clientScript() {
         // ---- dialog control ----
 
         case 'setDialogResponse': {
-          _nextDialogResponse = { accept: !!cmd.accept, promptText: cmd.promptText !== undefined ? String(cmd.promptText) : null };
+          const _sdAccept = !!cmd.accept;
+          const _sdText = cmd.promptText !== undefined ? String(cmd.promptText) : null;
+          if (_pendingPromptResolvers.length > 0) {
+            // Async prompt() is awaiting a response — resolve its Promise directly.
+            const pending = _pendingPromptResolvers.shift();
+            pending.resolve(_sdAccept ? (_sdText !== null ? _sdText : pending.def) : null);
+          } else {
+            // Pre-set mode (called before the dialog fires, e.g. for confirm).
+            _nextDialogResponse = { accept: _sdAccept, promptText: _sdText };
+          }
           break;
         }
 
