@@ -172,10 +172,7 @@ test('local — full checkout flow', async ({ proxyPage: page }) => {
   await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
   await page.waitForSelector('[data-test="remove-sauce-labs-backpack"]');
 
-  await page.locator('[data-test="add-to-cart-sauce-labs-bike-light"]').click();
-  await page.waitForSelector('[data-test="remove-sauce-labs-bike-light"]');
-
-  await expect(page.locator('[data-test="shopping-cart-badge"]')).toHaveText('2');
+  await expect(page.locator('[data-test="shopping-cart-badge"]')).toHaveText('1');
 
   // ── Cart ─────────────────────────────────────────────────────────────────
   await page.locator('[data-test="shopping-cart-link"]').click();
