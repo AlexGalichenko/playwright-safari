@@ -539,13 +539,9 @@ function clientScript() {
 
         case 'click': {
           const el = await getEl(cmd, timeout, frameDoc);
-          el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          el.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
           // Use the native .click() so the event is trusted — untrusted synthetic
           // click events don't trigger browser default actions like form submission.
           el.click();
-          // Explicitly focus the element after clicking
-          el.focus();
           break;
         }
 

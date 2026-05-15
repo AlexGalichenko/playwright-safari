@@ -240,67 +240,88 @@ test('full checkout flow', async ({ proxyPage: page }) => {
   await page.fill('#user-name', 'standard_user');
   await page.fill('#password', 'secret_sauce');
   await page.click('#login-button');
-  await page.waitForSelector('[data-test="inventory-list"]');
 
-  expect(await page.locator('[data-test="title"]').innerText()).toBe('Products');
-  expect(await page.locator('[data-test="inventory-item"]').count()).toBe(6);
+  await expect(page.locator('[data-test="title"]')).toHaveText('Products');
+  await expect(page.locator('[data-test="inventory-item"]')).toHaveCount(6);
 
   // ── Add items to cart ────────────────────────────────────────────────────
   await page.locator('[data-test="add-to-cart-sauce-labs-backpack"]').click();
-  await page.locator('[data-test="add-to-cart-sauce-labs-bike-light"]').click();
+  await page.waitForSelector('[data-test="remove-sauce-labs-backpack"]');
 
-  expect(await page.locator('[data-test="shopping-cart-badge"]').innerText()).toBe('2');
+  const state1 = await page.evaluate<object>(`({
+    badge: document.querySelector('[data-test="shopping-cart-badge"]')?.textContent,
+    removeBackpack: !!document.querySelector('[data-test="remove-sauce-labs-backpack"]'),
+    cartContents: localStorage.getItem('cart-contents'),
+    lsLength: localStorage.length,
+    allLsKeys: Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)),
+    lsTryWrite: (function() {
+      try { localStorage.setItem('__test__', '42'); var v = localStorage.getItem('__test__'); localStorage.removeItem('__test__'); return v; }
+      catch(e) { return 'ERROR: ' + e.message; }
+    })(),
+  })`);
+  console.log('after backpack click:', JSON.stringify(state1));
+
+  await page.locator('[data-test="add-to-cart-sauce-labs-bike-light"]').click();
+  await page.waitForSelector('[data-test="remove-sauce-labs-bike-light"]');
+
+  const state2 = await page.evaluate<object>(`({
+    badge: document.querySelector('[data-test="shopping-cart-badge"]')?.textContent,
+    addBackpack: !!document.querySelector('[data-test="add-to-cart-sauce-labs-backpack"]'),
+    removeBackpack: !!document.querySelector('[data-test="remove-sauce-labs-backpack"]'),
+    addBikeLight: !!document.querySelector('[data-test="add-to-cart-sauce-labs-bike-light"]'),
+    removeBikeLight: !!document.querySelector('[data-test="remove-sauce-labs-bike-light"]'),
+    removeCount: document.querySelectorAll('[data-test^="remove-"]').length,
+    cartContents: localStorage.getItem('cart-contents'),
+    bikelightBtnText: document.querySelector('[data-test^="sauce-labs-bike-light"]')?.textContent,
+    bikelightBtnTestId: document.querySelector('[data-test^="sauce-labs-bike-light"]')?.getAttribute('data-test'),
+  })`);
+  console.log('after bike-light click:', JSON.stringify(state2));
+
+  await expect(page.locator('[data-test="shopping-cart-badge"]')).toHaveText('2');
+
 
   // ── Cart ─────────────────────────────────────────────────────────────────
   await page.locator('[data-test="shopping-cart-link"]').click();
-  await page.waitForSelector('[data-test="cart-list"]');
 
-  expect(await page.locator('[data-test="title"]').innerText()).toBe('Your Cart');
+  await expect(page.locator('[data-test="title"]')).toHaveText('Your Cart');
 
   const cartItems = page.locator('[data-test="inventory-item"]');
-  expect(await cartItems.count()).toBe(2);
-  expect(await cartItems.filter({ hasText: 'Sauce Labs Backpack' }).isVisible()).toBe(true);
-  expect(await cartItems.filter({ hasText: 'Sauce Labs Bike Light' }).isVisible()).toBe(true);
+  await expect(cartItems).toHaveCount(2);
+  await expect(cartItems.filter({ hasText: 'Sauce Labs Backpack' })).toBeVisible();
+  await expect(cartItems.filter({ hasText: 'Sauce Labs Bike Light' })).toBeVisible();
 
   // ── Checkout: Your Information ────────────────────────────────────────────
   await page.locator('[data-test="checkout"]').click();
-  await page.waitForSelector('[data-test="checkout-info-container"]');
 
-  expect(await page.locator('[data-test="title"]').innerText()).toBe('Checkout: Your Information');
+  await expect(page.locator('[data-test="title"]')).toHaveText('Checkout: Your Information');
 
   await page.fill('#first-name', 'John');
   await page.fill('#last-name', 'Doe');
   await page.fill('#postal-code', '12345');
+
+  await expect(page.locator('#first-name')).toHaveValue('John');
+  await expect(page.locator('#last-name')).toHaveValue('Doe');
+  await expect(page.locator('#postal-code')).toHaveValue('12345');
+
   await page.locator('[data-test="continue"]').click();
-  await page.waitForSelector('[data-test="checkout-summary-container"]');
 
   // ── Checkout: Overview ────────────────────────────────────────────────────
-  expect(await page.locator('[data-test="title"]').innerText()).toBe('Checkout: Overview');
-  expect(await page.locator('[data-test="inventory-item"]').count()).toBe(2);
+  await expect(page.locator('[data-test="title"]')).toHaveText('Checkout: Overview');
+  await expect(page.locator('[data-test="inventory-item"]')).toHaveCount(2);
 
-  // Verify line items and totals are present
-  expect(await page.locator('[data-test="inventory-item"]').filter({ hasText: 'Sauce Labs Backpack' }).isVisible()).toBe(true);
-  expect(await page.locator('[data-test="inventory-item"]').filter({ hasText: 'Sauce Labs Bike Light' }).isVisible()).toBe(true);
+  await expect(page.locator('[data-test="inventory-item"]').filter({ hasText: 'Sauce Labs Backpack' })).toBeVisible();
+  await expect(page.locator('[data-test="inventory-item"]').filter({ hasText: 'Sauce Labs Bike Light' })).toBeVisible();
 
-  const subtotal = await page.locator('[data-test="subtotal-label"]').innerText();
-  expect(subtotal).toMatch(/Item total: \$39\.98/);
-
-  const tax = await page.locator('[data-test="tax-label"]').innerText();
-  expect(tax).toMatch(/Tax: \$/);
-
-  const total = await page.locator('[data-test="total-label"]').innerText();
-  expect(total).toMatch(/Total: \$/);
+  await expect(page.locator('[data-test="subtotal-label"]')).toContainText(/Item total: \$39\.98/);
+  await expect(page.locator('[data-test="tax-label"]')).toContainText(/Tax: \$/);
+  await expect(page.locator('[data-test="total-label"]')).toContainText(/Total: \$/);
 
   // ── Finish ────────────────────────────────────────────────────────────────
   await page.locator('[data-test="finish"]').click();
-  await page.waitForSelector('[data-test="checkout-complete-container"]');
 
   // ── Confirmation ──────────────────────────────────────────────────────────
-  expect(await page.locator('[data-test="complete-header"]').innerText()).toBe('Thank you for your order!');
-
-  const confirmText = await page.locator('[data-test="complete-text"]').innerText();
-  expect(confirmText).toMatch(/dispatched/i);
-  await page.waitForSelector('[data-test="complete-text"]');
+  await expect(page.locator('[data-test="complete-header"]')).toHaveText('Thank you for your order!');
+  await expect(page.locator('[data-test="complete-text"]')).toContainText(/dispatched/i);
 
   const buf = await page.screenshot();
   await test.info().attach('screenshot.png', { body: buf, contentType: 'image/png' });
@@ -1083,4 +1104,184 @@ test('page.frames — lists main frame plus iframes', async ({ proxyPage: page }
   const names = frames.map(f => f.name());
   expect(names).toContain('frame-a');
   expect(names).toContain('frame-b');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tests for custom Locator matchers
+// ════════════════════════════════════════════════════════════════════════════
+
+test('expect(locator).toBeVisible / toBeHidden', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const vis = document.createElement('div');
+    vis.id = 'visible-el';
+    vis.textContent = 'visible';
+    document.body.appendChild(vis);
+    const hid = document.createElement('div');
+    hid.id = 'hidden-el';
+    hid.textContent = 'hidden';
+    hid.style.display = 'none';
+    document.body.appendChild(hid);
+  `);
+
+  await expect(page.locator('#visible-el')).toBeVisible();
+  await expect(page.locator('#hidden-el')).toBeHidden();
+  await expect(page.locator('#hidden-el')).not.toBeVisible();
+  await expect(page.locator('#visible-el')).not.toBeHidden();
+});
+
+test('expect(locator).toBeEnabled / toBeDisabled', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const en = document.createElement('input'); en.id = 'en-input'; document.body.appendChild(en);
+    const dis = document.createElement('input'); dis.id = 'dis-input'; dis.disabled = true; document.body.appendChild(dis);
+  `);
+
+  await expect(page.locator('#en-input')).toBeEnabled();
+  await expect(page.locator('#dis-input')).toBeDisabled();
+  await expect(page.locator('#dis-input')).not.toBeEnabled();
+  await expect(page.locator('#en-input')).not.toBeDisabled();
+});
+
+test('expect(locator).toBeChecked', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = 'matcher-cb';
+    document.body.appendChild(cb);
+  `);
+
+  await expect(page.locator('#matcher-cb')).toBeChecked({ checked: false });
+  await page.evaluate(`document.getElementById('matcher-cb').checked = true`);
+  await expect(page.locator('#matcher-cb')).toBeChecked();
+});
+
+test('expect(locator).toBeEditable', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const ed = document.createElement('input'); ed.id = 'editable'; document.body.appendChild(ed);
+    const ro = document.createElement('input'); ro.id = 'readonly'; ro.readOnly = true; document.body.appendChild(ro);
+  `);
+
+  await expect(page.locator('#editable')).toBeEditable();
+  await expect(page.locator('#readonly')).not.toBeEditable();
+});
+
+test('expect(locator).toBeFocused', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const inp = document.createElement('input');
+    inp.id = 'focus-target';
+    document.body.appendChild(inp);
+  `);
+
+  await page.locator('#focus-target').focus();
+  await expect(page.locator('#focus-target')).toBeFocused();
+});
+
+test('expect(locator).toHaveText — string and RegExp', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+  await page.click('#login-button');
+  await page.waitForSelector('.title');
+
+  await expect(page.locator('.title')).toHaveText('Products');
+  await expect(page.locator('.title')).toHaveText(/Products/);
+  await expect(page.locator('.title')).not.toHaveText('Inventory');
+});
+
+test('expect(locator).toHaveText — array', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const ul = document.createElement('ul'); ul.id = 'text-list';
+    ['Alpha', 'Beta', 'Gamma'].forEach(t => {
+      const li = document.createElement('li'); li.textContent = t; ul.appendChild(li);
+    });
+    document.body.appendChild(ul);
+  `);
+
+  await expect(page.locator('#text-list li')).toHaveText(['Alpha', 'Beta', 'Gamma']);
+});
+
+test('expect(locator).toContainText', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+  await page.click('#login-button');
+  await page.waitForSelector('.title');
+
+  await expect(page.locator('.title')).toContainText('Prod');
+  await expect(page.locator('.title')).toContainText(/roduct/);
+});
+
+test('expect(locator).toHaveValue', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await expect(page.locator('#user-name')).toHaveValue('standard_user');
+  await expect(page.locator('#user-name')).toHaveValue(/standard/);
+  await expect(page.locator('#user-name')).not.toHaveValue('wrong_user');
+});
+
+test('expect(locator).toHaveAttribute', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await expect(page.locator('#login-button')).toHaveAttribute('type', 'submit');
+  await expect(page.locator('#login-button')).toHaveAttribute('type', /submit/);
+  await expect(page.locator('#login-button')).not.toHaveAttribute('type', 'button');
+});
+
+test('expect(locator).toHaveCount', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'standard_user');
+  await page.fill('#password', 'secret_sauce');
+  await page.click('#login-button');
+  await page.waitForSelector('.inventory_item');
+
+  await expect(page.locator('.inventory_item')).toHaveCount(6);
+  await expect(page.locator('.nonexistent')).toHaveCount(0);
+});
+
+test('expect(locator).toHaveClass', async ({ proxyPage: page }) => {
+  await page.goto('https://playwright.dev/');
+
+  await page.evaluate(`
+    const el = document.createElement('div');
+    el.id = 'classy';
+    el.className = 'foo bar baz';
+    document.body.appendChild(el);
+  `);
+
+  await expect(page.locator('#classy')).toHaveClass('foo');
+  await expect(page.locator('#classy')).toHaveClass('foo bar');
+  await expect(page.locator('#classy')).toHaveClass(/baz/);
+  await expect(page.locator('#classy')).not.toHaveClass('qux');
+});
+
+test('expect(locator).toHaveId', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await expect(page.locator('#login-button')).toHaveId('login-button');
+  await expect(page.locator('#login-button')).toHaveId(/login/);
+  await expect(page.locator('#login-button')).not.toHaveId('other-button');
+});
+
+test('expect(locator).toHaveJSProperty', async ({ proxyPage: page }) => {
+  await page.goto('https://www.saucedemo.com/');
+
+  await page.fill('#user-name', 'hello');
+
+  await expect(page.locator('#user-name')).toHaveJSProperty('value', 'hello');
+  await expect(page.locator('#user-name')).not.toHaveJSProperty('value', 'world');
 });

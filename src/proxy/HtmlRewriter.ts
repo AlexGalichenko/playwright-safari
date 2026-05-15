@@ -63,16 +63,39 @@ export function rewriteHtml(html: string, originalUrl: string, proxyPort: number
     'gis',
   );
 
-  let result = html.replace(attrPattern, (_m, attrEq, quote, url) =>
-    `${attrEq}${quote}${rewrite(url)}${quote}`,
-  );
+  // Rewrites URL attrs and srcset in an HTML segment (must NOT be a script body).
+  function rewriteSegment(segment: string): string {
+    let out = segment.replace(attrPattern, (_m, attrEq, quote, url) =>
+      `${attrEq}${quote}${rewrite(url)}${quote}`,
+    );
+    out = out.replace(
+      /(\ssrcset\s*=\s*)(['"])(.*?)\2/gis,
+      (_m, attrEq, quote, srcset) =>
+        `${attrEq}${quote}${rewriteSrcset(srcset, rewrite)}${quote}`,
+    );
+    return out;
+  }
 
-  // Rewrite srcset attributes (syntax differs from plain URL attrs)
-  result = result.replace(
-    /(\ssrcset\s*=\s*)(['"])(.*?)\2/gis,
-    (_m, attrEq, quote, srcset) =>
-      `${attrEq}${quote}${rewriteSrcset(srcset, rewrite)}${quote}`,
-  );
+  // Process HTML in segments to avoid corrupting <script> body content.
+  // Only the opening tag of each <script> element has its attributes rewritten;
+  // the script body is passed through unchanged.
+  const segments: string[] = [];
+  const scriptRe = /(<script[^>]*>)([\s\S]*?)(<\/script>)/gi;
+  let lastIndex = 0;
+  let scriptMatch: RegExpExecArray | null;
+
+  while ((scriptMatch = scriptRe.exec(html)) !== null) {
+    if (scriptMatch.index > lastIndex) {
+      segments.push(rewriteSegment(html.slice(lastIndex, scriptMatch.index)));
+    }
+    segments.push(rewriteSegment(scriptMatch[1]) + scriptMatch[2] + scriptMatch[3]);
+    lastIndex = scriptMatch.index + scriptMatch[0].length;
+  }
+  if (lastIndex < html.length) {
+    segments.push(rewriteSegment(html.slice(lastIndex)));
+  }
+
+  let result = segments.join('');
 
   // Strip inline CSP meta tags — HTTP-header CSP is already removed in ProxyServer,
   // but sites can also set policy via <meta http-equiv="Content-Security-Policy">.

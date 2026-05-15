@@ -1,5 +1,6 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect as baseExpect } from '@playwright/test';
 import { Browser, Page } from '../src';
+import { matchers } from './matchers';
 
 export type ProxyFixtures = { proxyPage: Page };
 
@@ -19,4 +20,8 @@ export const test = base.extend<ProxyFixtures>({
   },
 });
 
-export { expect };
+// Extended expect with Locator matchers: toBeVisible, toBeHidden, toBeEnabled,
+// toBeDisabled, toBeChecked, toBeEditable, toBeFocused, toHaveText,
+// toContainText, toHaveValue, toHaveAttribute, toHaveCount, toHaveClass,
+// toHaveId, toHaveJSProperty.
+export const expect = baseExpect.extend(matchers);
